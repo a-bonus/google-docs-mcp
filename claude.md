@@ -1,3 +1,5 @@
+Always use `bun` as the package manager.
+
 Okay, this is a significant undertaking. Building the "absolute best" server involves adding many complex features. I will provide:
 The full code for a substantially enhanced server.ts and the necessary new helper files (googleDocsApiHelpers.ts, types.ts). This code will include implementations for several key advanced features discussed and well-defined stubs for others, indicating where further development would go.
 Step-by-step instructions on how to integrate this new code into your existing project structure.

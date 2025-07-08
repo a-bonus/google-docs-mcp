@@ -105,7 +105,8 @@ TextFindParameter
 style: TextStyleParameters.refine(
 styleArgs => Object.values(styleArgs).some(v => v !== undefined),
 { message: "At least one text style option must be provided." }
-).describe("The text styling to apply.")
+).describe("The text styling to apply."),
+tabId: z.string().optional().describe('Optional: The ID of the specific tab to apply the style to.')
 });
 export type ApplyTextStyleToolArgs = z.infer<typeof ApplyTextStyleToolParameters>;
 
@@ -123,9 +124,30 @@ indexWithinParagraph: z.number().int().min(1).describe("An index located anywher
 style: ParagraphStyleParameters.refine(
 styleArgs => Object.values(styleArgs).some(v => v !== undefined),
 { message: "At least one paragraph style option must be provided." }
-).describe("The paragraph styling to apply.")
+).describe("The paragraph styling to apply."),
+tabId: z.string().optional().describe('Optional: The ID of the specific tab to apply the style to.')
 });
 export type ApplyParagraphStyleToolArgs = z.infer<typeof ApplyParagraphStyleToolParameters>;
+
+// --- Section Finding Parameters ---
+export const SectionFindParameter = z.object({
+sectionTitle: z.string().min(1).describe('The title of the section to find (heading text).'),
+headingLevel: z.enum(['HEADING_1', 'HEADING_2', 'HEADING_3', 'HEADING_4', 'HEADING_5', 'HEADING_6']).optional().describe('Optional: Specific heading level to search within. If omitted, searches all heading levels.'),
+matchInstance: z.number().int().min(1).optional().default(1).describe('Which instance of the section to target (1st, 2nd, etc.). Defaults to 1.'),
+returnContent: z.boolean().optional().default(false).describe('If true, returns the content of the section. If false, returns just the section location.'),
+contentEndBoundary: z.enum(['next_heading', 'next_same_level', 'next_higher_level', 'document_end']).optional().default('next_heading').describe('How to determine where the section content ends.')
+});
+
+export type SectionFindArgs = z.infer<typeof SectionFindParameter>;
+
+// --- Section Information Return Type ---
+export interface SectionInfo {
+title: string;
+headingLevel: string;
+startIndex: number;
+endIndex: number;
+content?: string;
+}
 
 // --- Error Class ---
 // Use FastMCP's UserError for client-facing issues
