@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/a-bonus-google-docs-mcp-badge.png)](https://mseep.ai/app/a-bonus-google-docs-mcp)
+
 # Ultimate Google Docs MCP Server
 
 ![Demo Animation](assets/google.docs.mcp.1.gif)
