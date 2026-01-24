@@ -1,7 +1,7 @@
 // src/server.ts
 import { FastMCP, UserError } from 'fastmcp';
 import { z } from 'zod';
-import { google, docs_v1, drive_v3, sheets_v4 } from 'googleapis';
+import { google, docs_v1, drive_v3, sheets_v4, slides_v1 } from 'googleapis';
 import { authorize } from './auth.js';
 import { OAuth2Client } from 'google-auth-library';
 
@@ -21,15 +21,17 @@ NotImplementedError
 } from './types.js';
 import * as GDocsHelpers from './googleDocsApiHelpers.js';
 import * as SheetsHelpers from './googleSheetsApiHelpers.js';
+import * as SlidesHelpers from './googleSlidesApiHelpers.js';
 
 let authClient: OAuth2Client | null = null;
 let googleDocs: docs_v1.Docs | null = null;
 let googleDrive: drive_v3.Drive | null = null;
 let googleSheets: sheets_v4.Sheets | null = null;
+let googleSlides: slides_v1.Slides | null = null;
 
 // --- Initialization ---
 async function initializeGoogleClient() {
-if (googleDocs && googleDrive && googleSheets) return { authClient, googleDocs, googleDrive, googleSheets };
+if (googleDocs && googleDrive && googleSheets && googleSlides) return { authClient, googleDocs, googleDrive, googleSheets, googleSlides };
 if (!authClient) { // Check authClient instead of googleDocs to allow re-attempt
 try {
 console.error("Attempting to authorize Google API client...");
@@ -38,6 +40,7 @@ authClient = client; // Assign client here
 googleDocs = google.docs({ version: 'v1', auth: authClient });
 googleDrive = google.drive({ version: 'v3', auth: authClient });
 googleSheets = google.sheets({ version: 'v4', auth: authClient });
+googleSlides = google.slides({ version: 'v1', auth: authClient });
 console.error("Google API client authorized successfully.");
 } catch (error) {
 console.error("FATAL: Failed to initialize Google API client:", error);
@@ -45,11 +48,12 @@ authClient = null; // Reset on failure
 googleDocs = null;
 googleDrive = null;
 googleSheets = null;
+googleSlides = null;
 // Decide if server should exit or just fail tools
 throw new Error("Google client initialization failed. Cannot start server tools.");
 }
 }
-// Ensure googleDocs, googleDrive, and googleSheets are set if authClient is valid
+// Ensure googleDocs, googleDrive, googleSheets, and googleSlides are set if authClient is valid
 if (authClient && !googleDocs) {
 googleDocs = google.docs({ version: 'v1', auth: authClient });
 }
@@ -59,12 +63,15 @@ googleDrive = google.drive({ version: 'v3', auth: authClient });
 if (authClient && !googleSheets) {
 googleSheets = google.sheets({ version: 'v4', auth: authClient });
 }
-
-if (!googleDocs || !googleDrive || !googleSheets) {
-throw new Error("Google Docs, Drive, and Sheets clients could not be initialized.");
+if (authClient && !googleSlides) {
+googleSlides = google.slides({ version: 'v1', auth: authClient });
 }
 
-return { authClient, googleDocs, googleDrive, googleSheets };
+if (!googleDocs || !googleDrive || !googleSheets || !googleSlides) {
+throw new Error("Google Docs, Drive, Sheets, and Slides clients could not be initialized.");
+}
+
+return { authClient, googleDocs, googleDrive, googleSheets, googleSlides };
 }
 
 // Set up process-level unhandled error/rejection handlers to prevent crashes
@@ -80,8 +87,8 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const server = new FastMCP({
-  name: 'Ultimate Google Docs & Sheets MCP Server',
-  version: '1.0.0'
+  name: 'Ultimate Google Docs, Sheets & Slides MCP Server',
+  version: '1.1.0'
 });
 
 // --- Helper to get Docs client within tools ---
@@ -109,6 +116,15 @@ if (!sheets) {
 throw new UserError("Google Sheets client is not initialized. Authentication might have failed during startup or lost connection.");
 }
 return sheets;
+}
+
+// --- Helper to get Slides client within tools ---
+async function getSlidesClient() {
+const { googleSlides: slides } = await initializeGoogleClient();
+if (!slides) {
+throw new UserError("Google Slides client is not initialized. Authentication might have failed during startup or lost connection.");
+}
+return slides;
 }
 
 // === HELPER FUNCTIONS ===
@@ -2467,11 +2483,156 @@ execute: async (args, { log }) => {
 }
 });
 
+// === GOOGLE SLIDES TOOLS ===
+
+server.addTool({
+  name: 'createPresentation',
+  description: 'Creates a new Google Slides presentation.',
+  parameters: z.object({
+    title: z.string().min(1).describe('The title for the new presentation.'),
+  }),
+  execute: async (args, { log }) => {
+    const slides = await getSlidesClient();
+    log.info(`Creating new presentation: ${args.title}`);
+
+    try {
+      const presentation = await SlidesHelpers.createPresentation(slides, args.title);
+
+      const presentationId = presentation.presentationId;
+      const slideCount = presentation.slides?.length || 0;
+
+      let result = `**Presentation Created Successfully**\n\n`;
+      result += `**Title:** ${presentation.title}\n`;
+      result += `**ID:** ${presentationId}\n`;
+      result += `**URL:** https://docs.google.com/presentation/d/${presentationId}/edit\n`;
+      result += `**Slides:** ${slideCount}\n`;
+
+      return result;
+    } catch (error: any) {
+      log.error(`Error creating presentation: ${error.message || error}`);
+      if (error instanceof UserError) throw error;
+      throw new UserError(`Failed to create presentation: ${error.message || 'Unknown error'}`);
+    }
+  }
+});
+
+server.addTool({
+  name: 'getPresentation',
+  description: 'Gets information about a Google Slides presentation including all slides.',
+  parameters: z.object({
+    presentationId: z.string().describe('The ID of the Google Slides presentation (from the URL).'),
+  }),
+  execute: async (args, { log }) => {
+    const slides = await getSlidesClient();
+    log.info(`Getting presentation: ${args.presentationId}`);
+
+    try {
+      const presentation = await SlidesHelpers.getPresentation(slides, args.presentationId);
+
+      let result = `**Presentation Information**\n\n`;
+      result += `**Title:** ${presentation.title || 'Untitled'}\n`;
+      result += `**ID:** ${presentation.presentationId}\n`;
+      result += `**URL:** https://docs.google.com/presentation/d/${presentation.presentationId}/edit\n\n`;
+
+      // Page size info
+      if (presentation.pageSize) {
+        const width = presentation.pageSize.width;
+        const height = presentation.pageSize.height;
+        if (width && height) {
+          const widthInches = SlidesHelpers.emuToInches(width.magnitude || 0);
+          const heightInches = SlidesHelpers.emuToInches(height.magnitude || 0);
+          result += `**Page Size:** ${widthInches.toFixed(2)}" x ${heightInches.toFixed(2)}"\n\n`;
+        }
+      }
+
+      // Slides summary
+      const slidesSummary = SlidesHelpers.getSlidesSummary(presentation);
+      result += `**Slides (${slidesSummary.length}):**\n`;
+      slidesSummary.forEach((slide, index) => {
+        result += `${index + 1}. **${slide.title}**\n`;
+        result += `   - Object ID: ${slide.objectId}\n`;
+      });
+
+      // Layouts summary
+      const layoutsSummary = SlidesHelpers.getLayoutsSummary(presentation);
+      if (layoutsSummary.length > 0) {
+        result += `\n**Available Layouts (${layoutsSummary.length}):**\n`;
+        layoutsSummary.forEach(layout => {
+          result += `- ${layout.displayName} (ID: ${layout.objectId})\n`;
+        });
+      }
+
+      return result;
+    } catch (error: any) {
+      log.error(`Error getting presentation ${args.presentationId}: ${error.message || error}`);
+      if (error instanceof UserError) throw error;
+      throw new UserError(`Failed to get presentation: ${error.message || 'Unknown error'}`);
+    }
+  }
+});
+
+server.addTool({
+  name: 'addSlide',
+  description: 'Adds a new slide to a Google Slides presentation.',
+  parameters: z.object({
+    presentationId: z.string().describe('The ID of the Google Slides presentation (from the URL).'),
+    insertionIndex: z.number().int().min(0).optional().describe('Optional 0-based index where to insert the slide. If not specified, the slide is added at the end.'),
+    predefinedLayout: z.enum([
+      'BLANK',
+      'CAPTION_ONLY',
+      'TITLE',
+      'TITLE_AND_BODY',
+      'TITLE_AND_TWO_COLUMNS',
+      'TITLE_ONLY',
+      'SECTION_HEADER',
+      'SECTION_TITLE_AND_DESCRIPTION',
+      'ONE_COLUMN_TEXT',
+      'MAIN_POINT',
+      'BIG_NUMBER'
+    ]).optional().default('BLANK').describe('The predefined layout to use for the new slide. Defaults to BLANK.'),
+  }),
+  execute: async (args, { log }) => {
+    const slides = await getSlidesClient();
+    log.info(`Adding slide to presentation ${args.presentationId} at index ${args.insertionIndex ?? 'end'} with layout ${args.predefinedLayout}`);
+
+    try {
+      const response = await SlidesHelpers.addSlide(
+        slides,
+        args.presentationId,
+        args.insertionIndex,
+        undefined,
+        args.predefinedLayout
+      );
+
+      // Extract the created slide info from the response
+      const createSlideReply = response.replies?.find(r => r.createSlide);
+      const newSlideId = createSlideReply?.createSlide?.objectId;
+
+      let result = `**Slide Added Successfully**\n\n`;
+      if (newSlideId) {
+        result += `**New Slide ID:** ${newSlideId}\n`;
+      }
+      result += `**Layout:** ${args.predefinedLayout}\n`;
+      if (args.insertionIndex !== undefined) {
+        result += `**Position:** Index ${args.insertionIndex}\n`;
+      } else {
+        result += `**Position:** Added at end\n`;
+      }
+
+      return result;
+    } catch (error: any) {
+      log.error(`Error adding slide to presentation ${args.presentationId}: ${error.message || error}`);
+      if (error instanceof UserError) throw error;
+      throw new UserError(`Failed to add slide: ${error.message || 'Unknown error'}`);
+    }
+  }
+});
+
 // --- Server Startup ---
 async function startServer() {
 try {
 await initializeGoogleClient(); // Authorize BEFORE starting listeners
-console.error("Starting Ultimate Google Docs & Sheets MCP server...");
+console.error("Starting Ultimate Google Docs, Sheets & Slides MCP server...");
 
       // Using stdio as before
       const configToUse = {
