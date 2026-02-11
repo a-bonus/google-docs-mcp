@@ -1,6 +1,6 @@
 # Google Docs MCP Server
 
-FastMCP server with 44 tools for Google Docs, Sheets, and Drive.
+FastMCP server with 45 tools for Google Docs, Sheets, and Drive.
 
 ## Tool Categories
 
@@ -9,7 +9,7 @@ FastMCP server with 44 tools for Google Docs, Sheets, and Drive.
 | Docs | 5 | `readGoogleDoc`, `appendToGoogleDoc`, `insertText`, `deleteRange`, `listDocumentTabs` |
 | Markdown | 2 | `replaceDocumentWithMarkdown`, `appendMarkdownToGoogleDoc` |
 | Formatting | 3 | `applyTextStyle`, `applyParagraphStyle`, `formatMatchingText` |
-| Structure | 7 | `insertTable`, `insertPageBreak`, `insertImageFromUrl`, `insertLocalImage`, `editTableCell`*, `findElement`*, `fixListFormatting`* |
+| Structure | 8 | `insertTable`, `editTableCell`, `listTables`, `insertPageBreak`, `insertImageFromUrl`, `insertLocalImage`, `findElement`*, `fixListFormatting`* |
 | Comments | 6 | `listComments`, `getComment`, `addComment`, `replyToComment`, `resolveComment`, `deleteComment` |
 | Sheets | 8 | `readSpreadsheet`, `writeSpreadsheet`, `appendSpreadsheetRows`, `clearSpreadsheetRange`, `createSpreadsheet`, `listGoogleSheets` |
 | Drive | 13 | `listGoogleDocs`, `searchGoogleDocs`, `getDocumentInfo`, `createFolder`, `moveFile`, `copyFile`, `createDocument` |
@@ -20,7 +20,7 @@ FastMCP server with 44 tools for Google Docs, Sheets, and Drive.
 
 - **Comment anchoring:** Programmatically created comments appear in "All Comments" but aren't visibly anchored to text in the UI
 - **Resolved status:** May not persist in Google Docs UI (Drive API limitation)
-- **editTableCell:** Not implemented (complex cell index calculation)
+- **findElement:** Not fully implemented
 - **fixListFormatting:** Experimental, may not work reliably
 
 ## Parameter Patterns
@@ -31,6 +31,77 @@ FastMCP server with 44 tools for Google Docs, Sheets, and Drive.
 - **Alignment:** `START`, `END`, `CENTER`, `JUSTIFIED` (not LEFT/RIGHT)
 - **Indices:** 1-based, ranges are [start, end)
 - **Tabs:** Optional `tabId` parameter (defaults to first tab)
+
+## Table Editing
+
+### Working with Tables
+
+Tables are now fully supported! Use `listTables` to discover tables, then `editTableCell` to modify cell content and styling.
+
+#### `listTables`
+Discover all tables in a document with their structure:
+
+```
+listTables({
+  documentId: "your-doc-id",
+  includeContent: true  // Optional: preview cell contents
+})
+```
+
+Returns:
+- Table index (use this for editTableCell)
+- Dimensions (rows × columns)
+- Location (document indices)
+- Content preview (if requested)
+
+#### `editTableCell`
+Edit any table cell by its position:
+
+```
+editTableCell({
+  documentId: "your-doc-id",
+  tableIndex: 0,        // 0-based table index (from listTables)
+  rowIndex: 0,          // 0-based row index
+  columnIndex: 1,       // 0-based column index
+  textContent: "New text",
+  textStyle: { bold: true },
+  paragraphStyle: { alignment: "CENTER" }
+})
+```
+
+**Workflow:**
+1. Use `listTables` to find table indices
+2. Use `editTableCell` with `tableIndex`, `rowIndex`, `columnIndex`
+3. All changes batched automatically for performance
+
+## Implementation Notes
+
+### Request Batching & Index Ordering
+
+All batch operations now follow Google's API best practices:
+- **Automatic descending index sorting** - Operations execute high-to-low to prevent index drift
+- **Operation grouping** - Delete, insert, and format operations are grouped and sorted
+- **No manual index recalculation needed**
+
+### DocumentContext Pattern (Advanced)
+
+For complex multi-operation workflows, use DocumentContext (similar to Office.js `Word.run()` pattern):
+
+```typescript
+import { DocumentContext } from './documentContext.js';
+
+const ctx = new DocumentContext(docs, documentId);
+ctx.insertText(100, "Header");
+ctx.applyTextStyle(100, 106, { bold: true });
+ctx.insertText(200, "Body text");
+await ctx.commit(); // Single API call
+```
+
+Benefits:
+- Queue multiple operations
+- Single API call (3-10x faster)
+- Automatic index ordering
+- Cleaner code
 
 ## Markdown Support
 
@@ -94,11 +165,13 @@ Appends markdown content to the end of a document with full formatting.
 | File | Contains |
 |------|----------|
 | `src/types.ts` | Zod schemas, hex color validation, style parameter definitions |
-| `src/googleDocsApiHelpers.ts` | `findTextRange`, `executeBatchUpdate`, `executeBatchUpdateWithSplitting`, style request builders |
+| `src/googleDocsApiHelpers.ts` | `findTextRange`, `executeBatchUpdate`, `executeBatchUpdateWithSplitting`, `sortByIndexDescending`, style request builders |
+| `src/documentContext.ts` | `DocumentContext` class for operation batching (Office.js pattern) |
+| `src/documentModel/` | Object model for Google Docs (GoogleDoc, Table, TableCell, etc.) |
 | `src/googleSheetsApiHelpers.ts` | A1 notation parsing, range operations |
 | `src/markdownParser.ts` | Markdown-it configuration, markdown parsing utilities |
 | `src/markdownToGoogleDocs.ts` | Markdown-to-Google-Docs conversion logic |
-| `src/server.ts` | All 44 tool definitions with full parameter schemas |
+| `src/server.ts` | All 45 tool definitions with full parameter schemas |
 
 ## See Also
 

@@ -47,10 +47,96 @@ return {}; // Nothing to do
 
 }
 
+// --- Request Index Extraction and Sorting ---
+/**
+ * Extracts the primary index from a request for sorting purposes.
+ * Returns the highest index if multiple are present, or Infinity if no index found.
+ *
+ * Following Google's best practice: "Order your requests in descending order of index location"
+ * Source: https://developers.google.com/workspace/docs/api/how-tos/best-practices
+ *
+ * @internal Exported for testing purposes
+ */
+export function getRequestIndex(request: docs_v1.Schema$Request): number {
+    // Delete operations - use startIndex (highest priority for ordering)
+    if (request.deleteContentRange?.range?.startIndex !== undefined &&
+        request.deleteContentRange.range.startIndex !== null) {
+        return request.deleteContentRange.range.startIndex;
+    }
+
+    // Insert operations - use location index
+    if (request.insertText?.location?.index !== undefined &&
+        request.insertText.location.index !== null) {
+        return request.insertText.location.index;
+    }
+    if (request.insertTable?.location?.index !== undefined &&
+        request.insertTable.location.index !== null) {
+        return request.insertTable.location.index;
+    }
+    if (request.insertPageBreak?.location?.index !== undefined &&
+        request.insertPageBreak.location.index !== null) {
+        return request.insertPageBreak.location.index;
+    }
+    if (request.insertInlineImage?.location?.index !== undefined &&
+        request.insertInlineImage.location.index !== null) {
+        return request.insertInlineImage.location.index;
+    }
+    if (request.insertSectionBreak?.location?.index !== undefined &&
+        request.insertSectionBreak.location.index !== null) {
+        return request.insertSectionBreak.location.index;
+    }
+
+    // Update operations - use range startIndex
+    if (request.updateTextStyle?.range?.startIndex !== undefined &&
+        request.updateTextStyle.range.startIndex !== null) {
+        return request.updateTextStyle.range.startIndex;
+    }
+    if (request.updateParagraphStyle?.range?.startIndex !== undefined &&
+        request.updateParagraphStyle.range.startIndex !== null) {
+        return request.updateParagraphStyle.range.startIndex;
+    }
+
+    // CreateParagraphBullets - use range startIndex
+    if (request.createParagraphBullets?.range?.startIndex !== undefined &&
+        request.createParagraphBullets.range.startIndex !== null) {
+        return request.createParagraphBullets.range.startIndex;
+    }
+
+    // No index found - put these last (they don't depend on position)
+    return Infinity;
+}
+
+/**
+ * Sorts requests by index in descending order (high to low).
+ * This follows Google's best practice to avoid index recalculation.
+ *
+ * Why descending? When you insert/delete at higher indices first,
+ * lower indices remain valid. If you go low-to-high, each operation
+ * shifts all subsequent indices.
+ *
+ * @internal Exported for testing purposes
+ */
+export function sortByIndexDescending(requests: docs_v1.Schema$Request[]): docs_v1.Schema$Request[] {
+    return [...requests].sort((a, b) => {
+        const indexA = getRequestIndex(a);
+        const indexB = getRequestIndex(b);
+
+        // Handle Infinity (no-index operations should go last)
+        if (indexA === Infinity && indexB === Infinity) return 0;
+        if (indexA === Infinity) return 1;  // a goes after b
+        if (indexB === Infinity) return -1; // b goes after a
+
+        return indexB - indexA; // Descending order
+    });
+}
+
 // --- Batch Update with Automatic Splitting ---
 /**
  * Executes batch updates with automatic splitting for large request arrays.
  * Separates insert and format operations, executing inserts first.
+ *
+ * CRITICAL: Operations are sorted by DESCENDING index within each category
+ * to prevent index drift (Google API best practice).
  *
  * @param docs - The Google Docs client
  * @param documentId - The document ID
@@ -84,20 +170,26 @@ export async function executeBatchUpdateWithSplitting(
           'insertInlineImage' in r || 'insertSectionBreak' in r)
     );
 
+    // CRITICAL FIX: Sort each category by descending index
+    // This follows Google's API best practice and prevents index drift
+    const sortedDeleteRequests = sortByIndexDescending(deleteRequests);
+    const sortedInsertRequests = sortByIndexDescending(insertRequests);
+    const sortedFormatRequests = sortByIndexDescending(formatRequests);
+
     // Execute delete batches first (must happen before inserts)
-    if (deleteRequests.length > 0) {
+    if (sortedDeleteRequests.length > 0) {
         if (log) {
-            log.info(`Executing ${deleteRequests.length} delete requests FIRST (in separate API call)`);
+            log.info(`Executing ${sortedDeleteRequests.length} delete requests (sorted by descending index)`);
         }
-        for (let i = 0; i < deleteRequests.length; i += MAX_BATCH) {
-            const batch = deleteRequests.slice(i, i + MAX_BATCH);
+        for (let i = 0; i < sortedDeleteRequests.length; i += MAX_BATCH) {
+            const batch = sortedDeleteRequests.slice(i, i + MAX_BATCH);
             if (log) {
                 log.info(`Delete batch content: ${JSON.stringify(batch)}`);
             }
             await executeBatchUpdate(docs, documentId, batch);
             if (log) {
                 const batchNum = Math.floor(i / MAX_BATCH) + 1;
-                const totalBatches = Math.ceil(deleteRequests.length / MAX_BATCH);
+                const totalBatches = Math.ceil(sortedDeleteRequests.length / MAX_BATCH);
                 log.info(`Executed delete batch ${batchNum}/${totalBatches} (${batch.length} requests)`);
             }
         }
@@ -106,27 +198,33 @@ export async function executeBatchUpdateWithSplitting(
         }
     }
 
-    // Then execute insert batches
-    if (insertRequests.length > 0) {
-        for (let i = 0; i < insertRequests.length; i += MAX_BATCH) {
-            const batch = insertRequests.slice(i, i + MAX_BATCH);
+    // Then execute insert batches (sorted by descending index)
+    if (sortedInsertRequests.length > 0) {
+        if (log) {
+            log.info(`Executing ${sortedInsertRequests.length} insert requests (sorted by descending index)`);
+        }
+        for (let i = 0; i < sortedInsertRequests.length; i += MAX_BATCH) {
+            const batch = sortedInsertRequests.slice(i, i + MAX_BATCH);
             await executeBatchUpdate(docs, documentId, batch);
             if (log) {
                 const batchNum = Math.floor(i / MAX_BATCH) + 1;
-                const totalBatches = Math.ceil(insertRequests.length / MAX_BATCH);
+                const totalBatches = Math.ceil(sortedInsertRequests.length / MAX_BATCH);
                 log.info(`Executed insert batch ${batchNum}/${totalBatches} (${batch.length} requests)`);
             }
         }
     }
 
-    // Finally execute format batches
-    if (formatRequests.length > 0) {
-        for (let i = 0; i < formatRequests.length; i += MAX_BATCH) {
-            const batch = formatRequests.slice(i, i + MAX_BATCH);
+    // Finally execute format batches (sorted by descending index)
+    if (sortedFormatRequests.length > 0) {
+        if (log) {
+            log.info(`Executing ${sortedFormatRequests.length} format requests (sorted by descending index)`);
+        }
+        for (let i = 0; i < sortedFormatRequests.length; i += MAX_BATCH) {
+            const batch = sortedFormatRequests.slice(i, i + MAX_BATCH);
             await executeBatchUpdate(docs, documentId, batch);
             if (log) {
                 const batchNum = Math.floor(i / MAX_BATCH) + 1;
-                const totalBatches = Math.ceil(formatRequests.length / MAX_BATCH);
+                const totalBatches = Math.ceil(sortedFormatRequests.length / MAX_BATCH);
                 log.info(`Executed format batch ${batchNum}/${totalBatches} (${batch.length} requests)`);
             }
         }

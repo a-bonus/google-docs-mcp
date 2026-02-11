@@ -296,7 +296,7 @@ log.info(`Reading Google Doc: ${args.documentId}, Format: ${args.format}${args.t
 
         const fields = args.format === 'json' || args.format === 'markdown'
             ? '*' // Get everything for structure analysis
-            : 'body(content(paragraph(elements(textRun(content)))))'; // Just text content
+            : 'body(content(paragraph(elements(textRun(content))),table(tableRows(tableCells(content(paragraph(elements(textRun(content)))))))))'; // Text content including tables
 
         const res = await docs.documents.get({
             documentId: args.documentId,
@@ -1043,35 +1043,166 @@ throw new UserError(`Failed to insert table: ${error.message || 'Unknown error'}
 
 server.addTool({
 name: 'editTableCell',
-description: 'Edits the content and/or basic style of a specific table cell. Requires knowing table start index.',
+description: 'Edits the content and/or basic style of a specific table cell using table index (0-based).',
 parameters: DocumentIdParameter.extend({
-tableStartIndex: z.number().int().min(1).describe("The starting index of the TABLE element itself (tricky to find, may require reading structure first)."),
+tableIndex: z.number().int().min(0).describe("The table index (0-based). Use 0 for first table, 1 for second, etc. Use listTables to find table indices."),
 rowIndex: z.number().int().min(0).describe("Row index (0-based)."),
 columnIndex: z.number().int().min(0).describe("Column index (0-based)."),
 textContent: z.string().optional().describe("Optional: New text content for the cell. Replaces existing content."),
-// Combine basic styles for simplicity here. More advanced cell styling might need separate tools.
 textStyle: TextStyleParameters.optional().describe("Optional: Text styles to apply."),
 paragraphStyle: ParagraphStyleParameters.optional().describe("Optional: Paragraph styles (like alignment) to apply."),
-// cellBackgroundColor: z.string().optional()... // Cell-specific styles are complex
+tabId: z.string().optional().describe("Optional: Target a specific tab by ID.")
 }),
 execute: async (args, { log }) => {
 const docs = await getDocsClient();
-log.info(`Editing cell (${args.rowIndex}, ${args.columnIndex}) in table starting at ${args.tableStartIndex}, doc ${args.documentId}`);
+log.info(`Editing cell (${args.rowIndex}, ${args.columnIndex}) in table ${args.tableIndex}, doc ${args.documentId}`);
 
-        // TODO: Implement complex logic
-        // 1. Find the cell's content range based on tableStartIndex, rowIndex, columnIndex. This is NON-TRIVIAL.
-        //    Requires getting the document, finding the table element, iterating through rows/cells to calculate indices.
-        // 2. If textContent is provided, generate a DeleteContentRange request for the cell's current content.
-        // 3. Generate an InsertText request for the new textContent at the cell's start index.
-        // 4. If textStyle is provided, generate UpdateTextStyle requests for the new text range.
-        // 5. If paragraphStyle is provided, generate UpdateParagraphStyle requests for the cell's paragraph range.
-        // 6. Execute batch update.
+        try {
+            // Load document with our model
+            const { GoogleDoc } = await import('./documentModel/index.js');
+            const doc = await GoogleDoc.load(docs, args.documentId, !!args.tabId);
 
-        log.error("editTableCell is not implemented due to complexity of finding cell indices.");
-        throw new NotImplementedError("Editing table cells is complex and not yet implemented.");
-        // return `Edit request for cell (${args.rowIndex}, ${args.columnIndex}) submitted (Not Implemented).`;
+            // Get the table
+            if (args.tableIndex >= doc.body.tables.length) {
+                throw new UserError(
+                    `Table index ${args.tableIndex} out of range. Document has ${doc.body.tables.length} table(s). Use listTables to see all tables.`
+                );
+            }
+
+            const table = doc.body.tables[args.tableIndex];
+
+            // Get the cell
+            const cell = table.cell(args.rowIndex, args.columnIndex);
+            if (!cell) {
+                throw new UserError(
+                    `Cell (${args.rowIndex}, ${args.columnIndex}) is out of range for table with ${table.rowCount} rows and ${table.columnCount} columns.`
+                );
+            }
+
+            // Get cell content range
+            const cellRange = cell.getRange();
+            if (!cellRange) {
+                throw new UserError(
+                    `Could not determine content indices for cell (${args.rowIndex}, ${args.columnIndex}).`
+                );
+            }
+
+            log.info(`Cell range: ${cellRange.startIndex}-${cellRange.endIndex}`);
+
+            // Build requests using DocumentContext for batching
+            const { DocumentContext } = await import('./documentContext.js');
+            const ctx = new DocumentContext(docs, args.documentId);
+
+            // Replace text if provided
+            if (args.textContent !== undefined) {
+                // Delete existing content (preserve trailing newline)
+                const currentText = cell.getText();
+                const hasTrailingNewline = currentText.endsWith('\n');
+
+                const deleteEndIndex = hasTrailingNewline
+                    ? cellRange.endIndex - 1  // Preserve the \n
+                    : cellRange.endIndex;
+
+                if (deleteEndIndex > cellRange.startIndex) {
+                    ctx.deleteRange(cellRange.startIndex, deleteEndIndex, args.tabId);
+                }
+
+                // Insert new text
+                ctx.insertText(cellRange.startIndex, args.textContent, args.tabId);
+            }
+
+            // Apply text style if provided
+            if (args.textStyle) {
+                const styleStartIndex = cellRange.startIndex;
+                const styleEndIndex = args.textContent !== undefined
+                    ? cellRange.startIndex + args.textContent.length
+                    : cellRange.endIndex - 1;  // Don't style the trailing \n
+
+                ctx.applyTextStyle(styleStartIndex, styleEndIndex, args.textStyle, args.tabId);
+            }
+
+            // Apply paragraph style if provided
+            if (args.paragraphStyle) {
+                const styleStartIndex = cellRange.startIndex;
+                const styleEndIndex = args.textContent !== undefined
+                    ? cellRange.startIndex + args.textContent.length
+                    : cellRange.endIndex - 1;
+
+                ctx.applyParagraphStyle(styleStartIndex, styleEndIndex, args.paragraphStyle, args.tabId);
+            }
+
+            // Commit all changes
+            if (ctx.hasQueuedRequests) {
+                await ctx.commit();
+                return `Successfully updated cell (${args.rowIndex}, ${args.columnIndex}) in table ${args.tableIndex}.`;
+            } else {
+                return `No changes to apply.`;
+            }
+
+        } catch (error: any) {
+            log.error(`Error editing table cell: ${error.message || error}`);
+            if (error instanceof UserError) throw error;
+            if (error instanceof NotImplementedError) throw error;
+            throw new UserError(`Failed to edit table cell: ${error.message || 'Unknown error'}`);
+        }
     }
 
+});
+
+server.addTool({
+name: 'listTables',
+description: 'Lists all tables in a document with their structure information. Use this to find table indices for editTableCell.',
+parameters: DocumentIdParameter.extend({
+includeContent: z.boolean().optional().default(false)
+.describe("Whether to include cell content preview (text from each cell)."),
+tabId: z.string().optional().describe("Optional: Target a specific tab by ID.")
+}),
+execute: async (args, { log }) => {
+const docs = await getDocsClient();
+log.info(`Listing tables in doc ${args.documentId}`);
+
+        try {
+            // Load document with our model
+            const { GoogleDoc } = await import('./documentModel/index.js');
+            const doc = await GoogleDoc.load(docs, args.documentId, !!args.tabId);
+
+            const tables = doc.body.tables;
+
+            if (tables.length === 0) {
+                return "No tables found in document.";
+            }
+
+            let result = `Found ${tables.length} table(s):\n\n`;
+
+            tables.forEach((table, index) => {
+                result += `Table ${index}:\n`;
+                result += `  Dimensions: ${table.rowCount} rows × ${table.columnCount} columns\n`;
+                result += `  Location: indices ${table.startIndex}-${table.endIndex}\n`;
+
+                if (args.includeContent) {
+                    result += `  Content preview:\n`;
+                    table.rows.forEach((row, rowIndex) => {
+                        result += `    Row ${rowIndex}: `;
+                        result += row.cells.map(cell => {
+                            const text = cell.getText().trim().replace(/\n/g, ' ');
+                            const preview = text.length > 20 ? text.substring(0, 20) + '...' : text;
+                            return `"${preview}"`;
+                        }).join(' | ');
+                        result += '\n';
+                    });
+                }
+
+                result += '\n';
+            });
+
+            return result;
+
+        } catch (error: any) {
+            log.error(`Error listing tables: ${error.message || error}`);
+            if (error instanceof UserError) throw error;
+            throw new UserError(`Failed to list tables: ${error.message || 'Unknown error'}`);
+        }
+    }
 });
 
 server.addTool({
