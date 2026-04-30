@@ -4,6 +4,15 @@ import { UserError } from 'fastmcp';
 
 type Sheets = sheets_v4.Sheets; // Alias for convenience
 
+export interface ExtractedSheetHyperlink {
+  cell: string;
+  sheetName: string | null;
+  formattedValue: string | null;
+  formula: string | null;
+  url: string;
+  linkSource: 'cellHyperlink' | 'cellFormat' | 'textFormatRun' | 'formula';
+}
+
 // --- Core Helper Functions ---
 
 /**
@@ -95,6 +104,137 @@ export async function readRange(
       );
     }
     throw new UserError(`Failed to read range: ${error.message || 'Unknown error'}`);
+  }
+}
+
+/**
+ * Reads a single cell hyperlink from grid data, including formula fallback.
+ */
+function quoteSheetName(sheetName: string): string {
+  return /[\s'!]/.test(sheetName) ? `'${sheetName.replace(/'/g, "''")}'` : sheetName;
+}
+
+function extractFormulaHyperlink(formulaValue: string | null | undefined): string | null {
+  if (!formulaValue) return null;
+
+  const match = formulaValue.match(
+    /^\s*=\s*HYPERLINK\s*\(\s*"([^"]+)"\s*(?:,|\))/
+  );
+  return match?.[1] ?? null;
+}
+
+function extractHyperlinkFromCellData(
+  cellData: sheets_v4.Schema$CellData | undefined,
+  cellRef: string,
+  sheetName: string | null
+): ExtractedSheetHyperlink {
+  const formula = cellData?.userEnteredValue?.formulaValue ?? null;
+  const formattedValue = cellData?.formattedValue ?? null;
+
+  if (cellData?.hyperlink) {
+    return {
+      cell: cellRef,
+      sheetName,
+      formattedValue,
+      formula,
+      url: cellData.hyperlink,
+      linkSource: 'cellHyperlink',
+    };
+  }
+
+  const cellFormatLink = cellData?.userEnteredFormat?.textFormat?.link?.uri;
+  if (cellFormatLink) {
+    return {
+      cell: cellRef,
+      sheetName,
+      formattedValue,
+      formula,
+      url: cellFormatLink,
+      linkSource: 'cellFormat',
+    };
+  }
+
+  const runLinks = Array.from(
+    new Set(
+      (cellData?.textFormatRuns ?? [])
+        .map((run) => run.format?.link?.uri ?? null)
+        .filter((url): url is string => typeof url === 'string' && url.length > 0)
+    )
+  );
+
+  if (runLinks.length > 1) {
+    throw new UserError(
+      `Cell ${sheetName ? `${sheetName}!` : ''}${cellRef} contains multiple hyperlinks.`
+    );
+  }
+
+  if (runLinks.length === 1) {
+    return {
+      cell: cellRef,
+      sheetName,
+      formattedValue,
+      formula,
+      url: runLinks[0],
+      linkSource: 'textFormatRun',
+    };
+  }
+
+  const formulaLink = extractFormulaHyperlink(formula);
+  if (formulaLink) {
+    return {
+      cell: cellRef,
+      sheetName,
+      formattedValue,
+      formula,
+      url: formulaLink,
+      linkSource: 'formula',
+    };
+  }
+
+  throw new UserError(`Cell ${sheetName ? `${sheetName}!` : ''}${cellRef} does not contain a hyperlink.`);
+}
+
+export async function readCellHyperlink(
+  sheets: Sheets,
+  spreadsheetId: string,
+  cell: string
+): Promise<ExtractedSheetHyperlink> {
+  try {
+    const { sheetName, a1Range } = parseRange(cell);
+    a1ToRowCol(a1Range);
+
+    const metadata = await getSpreadsheetMetadata(sheets, spreadsheetId);
+    const targetSheet = sheetName
+      ? metadata.sheets?.find((sheet) => sheet.properties?.title === sheetName)
+      : metadata.sheets?.[0];
+
+    const targetSheetName = targetSheet?.properties?.title ?? null;
+    if (!targetSheetName) {
+      throw new UserError('Spreadsheet has no sheets.');
+    }
+
+    const response = await sheets.spreadsheets.get({
+      spreadsheetId,
+      ranges: [`${quoteSheetName(targetSheetName)}!${a1Range}`],
+      includeGridData: true,
+      fields:
+        'sheets.properties.title,sheets.data.rowData.values.formattedValue,sheets.data.rowData.values.hyperlink,sheets.data.rowData.values.textFormatRuns,sheets.data.rowData.values.userEnteredFormat.textFormat.link,sheets.data.rowData.values.userEnteredValue.formulaValue,sheets.data.startRow,sheets.data.startColumn',
+    });
+
+    const data = response.data.sheets?.[0]?.data?.[0];
+    const cellData = data?.rowData?.[0]?.values?.[0];
+    return extractHyperlinkFromCellData(cellData, a1Range, targetSheetName);
+  } catch (error: any) {
+    if (error.code === 404) {
+      throw new UserError(`Spreadsheet not found (ID: ${spreadsheetId}). Check the ID.`);
+    }
+    if (error.code === 403) {
+      throw new UserError(
+        `Permission denied for spreadsheet (ID: ${spreadsheetId}). Ensure you have read access.`
+      );
+    }
+    if (error instanceof UserError) throw error;
+    throw new UserError(`Failed to read cell hyperlink: ${error.message || 'Unknown error'}`);
   }
 }
 

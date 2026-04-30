@@ -7,6 +7,8 @@ Tools for reading, writing, and managing Google Spreadsheets, including cell dat
 | Tool               | Description                                              |
 | ------------------ | -------------------------------------------------------- |
 | `readSpreadsheet`  | Reads data from a range in a spreadsheet                 |
+| `extractSheetHyperlink` | Resolves the hyperlink target stored in a single cell |
+| `followSheetHyperlink` | Resolves a single-cell hyperlink and performs an HTTP GET |
 | `writeSpreadsheet` | Writes data to a range, overwriting existing values      |
 | `appendRows`       | Appends rows to the end of a sheet                       |
 | `clearRange`       | Clears all cell values in a range without deleting cells |

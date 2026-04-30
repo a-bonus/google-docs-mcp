@@ -155,6 +155,8 @@ Tools across Google Docs, Sheets, and Drive:
 | `ungroupAllRows`              | Remove all row groupings                                              |
 | `insertChart`                 | Create a chart from data                                              |
 | `deleteChart`                 | Remove a chart                                                        |
+| `extractSheetHyperlink`    | Resolve the hyperlink stored in a single cell |
+| `followSheetHyperlink`     | Follow a cell hyperlink with HTTP GET |
 
 ### Google Sheets Tables
 
