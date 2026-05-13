@@ -2,6 +2,7 @@ import type { FastMCP } from 'fastmcp';
 import { UserError } from 'fastmcp';
 import { z } from 'zod';
 import { getDriveClient } from '../../clients.js';
+import { escapeDriveQuery } from '../../driveQueryUtils.js';
 
 export function register(server: FastMCP) {
   server.addTool({
@@ -36,7 +37,8 @@ export function register(server: FastMCP) {
         // Build the query string for Google Drive API
         let queryString = "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false";
         if (args.query) {
-          queryString += ` and (name contains '${args.query}' or fullText contains '${args.query}')`;
+          const escapedQuery = escapeDriveQuery(args.query);
+          queryString += ` and (name contains '${escapedQuery}' or fullText contains '${escapedQuery}')`;
         }
 
         const response = await drive.files.list({
