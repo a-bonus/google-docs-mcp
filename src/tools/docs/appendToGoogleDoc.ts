@@ -41,7 +41,9 @@ export function register(server: FastMCP) {
         const docInfo = await docs.documents.get({
           documentId: args.documentId,
           includeTabsContent: needsTabsContent,
-          fields: needsTabsContent ? 'tabs' : 'body(content(endIndex)),documentStyle(pageSize)',
+          fields: needsTabsContent
+            ? 'tabs(tabProperties,documentTab(body),childTabs(tabProperties,documentTab(body),childTabs(tabProperties,documentTab(body))))'
+            : 'body(content(endIndex)),documentStyle(pageSize)',
         });
 
         let endIndex = 1;
