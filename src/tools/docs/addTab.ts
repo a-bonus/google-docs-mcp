@@ -47,7 +47,7 @@ export function register(server: FastMCP) {
           const docInfo = await docs.documents.get({
             documentId: args.documentId,
             includeTabsContent: true,
-            fields: 'tabs(tabProperties,documentTab)',
+            fields: 'tabs(tabProperties,documentTab(body))',
           });
           const parentTab = GDocsHelpers.findTabById(docInfo.data, args.parentTabId);
           if (!parentTab) {

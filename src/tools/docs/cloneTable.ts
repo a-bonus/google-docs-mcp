@@ -88,7 +88,7 @@ export function register(server: FastMCP) {
           const targetInfo = await docs.documents.get({
             documentId: args.documentId,
             includeTabsContent: true,
-            fields: 'tabs(tabProperties,documentTab)',
+            fields: 'tabs(tabProperties,documentTab(body))',
           });
           const targetTab = GDocsHelpers.findTabById(targetInfo.data, args.targetTabId);
           if (!targetTab)
