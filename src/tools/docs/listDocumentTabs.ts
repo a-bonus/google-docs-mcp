@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getDocsClient } from '../../clients.js';
 import { DocumentIdParameter } from '../../types.js';
 import * as GDocsHelpers from '../../googleDocsApiHelpers.js';
+import { TAB_LIST_FIELDS, TAB_LIST_WITH_CONTENT_FIELDS } from './tabFieldMasks.js';
 
 export function register(server: FastMCP) {
   server.addTool({
@@ -27,9 +28,7 @@ export function register(server: FastMCP) {
           documentId: args.documentId,
           includeTabsContent: true,
           // Only get essential fields for tab listing
-          fields: args.includeContent
-            ? 'title,tabs(tabProperties,childTabs(tabProperties,childTabs(tabProperties,childTabs(tabProperties))),documentTab(body(content(endIndex))))' // Explicit fields to avoid comment-field validation
-            : 'title,tabs(tabProperties,childTabs(tabProperties,childTabs(tabProperties,childTabs(tabProperties))))', // Recursive structure only
+          fields: args.includeContent ? TAB_LIST_WITH_CONTENT_FIELDS : TAB_LIST_FIELDS,
         });
 
         const docTitle = res.data.title || 'Untitled Document';
