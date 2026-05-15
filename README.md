@@ -421,7 +421,7 @@ For Google Workspace with domain-wide delegation:
 
 ### Token Storage
 
-OAuth refresh tokens are stored in `~/.config/google-docs-mcp/token.json` (respects `XDG_CONFIG_HOME`). To re-authorize, run the `auth` command again or delete the token file.
+OAuth refresh tokens are stored in `~/.config/google-docs-mcp/token.json` (respects `XDG_CONFIG_HOME`). OAuth client IDs and client secrets are not stored in the token file. To re-authorize, run the `auth` command again or delete the token file.
 
 ### Multiple Google Accounts
 

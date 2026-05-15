@@ -37,7 +37,7 @@ GOOGLE_CLIENT_SECRET="your-client-secret" \
 npm start auth
 ```
 
-Both options save the refresh token to `~/.config/google-docs-mcp/token.json`.
+Both options save the refresh token to `~/.config/google-docs-mcp/token.json`. OAuth client IDs and client secrets stay in your environment or `credentials.json`; they are not stored in the token file.
 
 ### Register Your Local Build
 
@@ -112,7 +112,7 @@ The auth module (`src/auth.ts`) resolves credentials in this order:
 2. `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` env vars -- OAuth (for `npx` consumers)
 3. `credentials.json` in the project root -- OAuth (for local dev)
 
-Tokens are persisted to `~/.config/google-docs-mcp/token.json` (respects `XDG_CONFIG_HOME`).
+Tokens are persisted to `~/.config/google-docs-mcp/token.json` (respects `XDG_CONFIG_HOME`). The token file stores OAuth token credentials only, not OAuth client IDs or client secrets.
 
 ---
 

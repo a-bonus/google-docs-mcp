@@ -58,6 +58,44 @@ const SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
 ];
 
+const TOKEN_CREDENTIAL_FIELDS = ['access_token', 'refresh_token', 'scope', 'token_type'] as const;
+
+export function sanitizeStoredTokenCredentials(
+  rawCredentials: unknown
+): OAuth2Client['credentials'] {
+  if (!rawCredentials || typeof rawCredentials !== 'object' || Array.isArray(rawCredentials)) {
+    throw new Error('Invalid saved token format.');
+  }
+
+  const raw = rawCredentials as Record<string, unknown>;
+  const credentials: Record<string, string | number> = {};
+
+  for (const field of TOKEN_CREDENTIAL_FIELDS) {
+    const value = raw[field];
+    if (typeof value === 'string' && value.length > 0) {
+      credentials[field] = value;
+    }
+  }
+
+  if (typeof raw.expiry_date === 'number') {
+    credentials.expiry_date = raw.expiry_date;
+  }
+
+  if (!credentials.refresh_token && !credentials.access_token) {
+    throw new Error('Saved token does not contain OAuth token credentials.');
+  }
+
+  return credentials as OAuth2Client['credentials'];
+}
+
+export function createStoredTokenPayload(
+  credentials: OAuth2Client['credentials']
+): OAuth2Client['credentials'] {
+  return sanitizeStoredTokenCredentials({
+    refresh_token: credentials.refresh_token,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Client secrets resolution
 // ---------------------------------------------------------------------------
@@ -149,7 +187,7 @@ async function loadSavedCredentialsIfExist(): Promise<OAuth2Client | null> {
   try {
     const tokenPath = getTokenPath();
     const content = await fs.readFile(tokenPath, 'utf8');
-    const credentials = JSON.parse(content);
+    const credentials = sanitizeStoredTokenCredentials(JSON.parse(content));
     const { client_secret, client_id } = await loadClientSecrets();
     const client = new google.auth.OAuth2(client_id, client_secret);
     client.setCredentials(credentials);
@@ -160,19 +198,10 @@ async function loadSavedCredentialsIfExist(): Promise<OAuth2Client | null> {
 }
 
 async function saveCredentials(client: OAuth2Client): Promise<void> {
-  const { client_id } = await loadClientSecrets();
   const configDir = getConfigDir();
   await fs.mkdir(configDir, { recursive: true, mode: 0o700 });
   const tokenPath = getTokenPath();
-  const payload = JSON.stringify(
-    {
-      type: 'authorized_user',
-      client_id,
-      refresh_token: client.credentials.refresh_token,
-    },
-    null,
-    2
-  );
+  const payload = JSON.stringify(createStoredTokenPayload(client.credentials), null, 2);
   await fs.writeFile(tokenPath, payload, { mode: 0o600 });
   logger.info('Token stored to', tokenPath);
 }
