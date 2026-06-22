@@ -45,7 +45,7 @@ describe('Text Range Finding', () => {
         mockDocs.documents.get.mock.calls[0].arguments[0], 
         {
           documentId: 'doc123',
-          fields: 'body(content(paragraph(elements(startIndex,endIndex,textRun(content)))))'
+          fields: 'body(content(paragraph(elements(startIndex,endIndex,textRun(content))),table,sectionBreak,tableOfContents,startIndex,endIndex))'
         }
       );
     });
