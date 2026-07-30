@@ -67,15 +67,30 @@ throw new Error("Google Docs, Drive, and Sheets clients could not be initialized
 return { authClient, googleDocs, googleDrive, googleSheets };
 }
 
+// Exit when the MCP client (Claude session) goes away, instead of lingering as an orphan
+process.stdin.on('end', () => process.exit(0));
+process.stdin.on('close', () => process.exit(0));
+
 // Set up process-level unhandled error/rejection handlers to prevent crashes
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+process.on('uncaughtException', (error: any) => {
+  // EPIPE means our client is gone; logging would throw again and spin the CPU
+  if (error?.code === 'EPIPE') process.exit(0);
+  try {
+    console.error('Uncaught Exception:', error);
+  } catch {
+    process.exit(0);
+  }
   // Don't exit process, just log the error and continue
   // This will catch timeout errors that might otherwise crash the server
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Promise Rejection:', reason);
+process.on('unhandledRejection', (reason: any, promise) => {
+  if (reason?.code === 'EPIPE') process.exit(0);
+  try {
+    console.error('Unhandled Promise Rejection:', reason);
+  } catch {
+    process.exit(0);
+  }
   // Don't exit process, just log the error and continue
 });
 
