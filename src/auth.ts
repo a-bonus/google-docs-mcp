@@ -108,6 +108,34 @@ export function createStoredTokenPayload(
  *   1. GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET env vars (npx / production)
  *   2. credentials.json in the project root (local dev fallback)
  */
+export function describeMissingCredentials(
+  credentialsPath: string,
+  envId?: string,
+  envSecret?: string
+): string {
+  // A half-configured environment is the most confusing case: the user believes
+  // they configured the server, so "no credentials found" reads as a bug.
+  if (envId && !envSecret) {
+    return (
+      'GOOGLE_CLIENT_ID is set but GOOGLE_CLIENT_SECRET is not, so OAuth cannot start. ' +
+      'Set GOOGLE_CLIENT_SECRET as well, or remove GOOGLE_CLIENT_ID and place a ' +
+      `credentials.json file at ${credentialsPath} instead.`
+    );
+  }
+  if (!envId && envSecret) {
+    return (
+      'GOOGLE_CLIENT_SECRET is set but GOOGLE_CLIENT_ID is not, so OAuth cannot start. ' +
+      'Set GOOGLE_CLIENT_ID as well, or remove GOOGLE_CLIENT_SECRET and place a ' +
+      `credentials.json file at ${credentialsPath} instead.`
+    );
+  }
+  return (
+    'No OAuth credentials found. Either set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET, ' +
+    `or download your OAuth client JSON from the Google Cloud Console and save it as ${credentialsPath}. ` +
+    'Then run `npx @a-bonus/google-docs-mcp auth` to authorize.'
+  );
+}
+
 async function loadClientSecrets(): Promise<{
   client_id: string;
   client_secret: string;
@@ -120,26 +148,74 @@ async function loadClientSecrets(): Promise<{
   }
 
   // 2. credentials.json fallback
+  let content: string;
   try {
-    const content = await fs.readFile(CREDENTIALS_PATH, 'utf8');
-    const keys = JSON.parse(content);
-    const key = keys.installed || keys.web;
-    if (!key) {
-      throw new Error('Could not find client secrets in credentials.json.');
-    }
-    return {
-      client_id: key.client_id,
-      client_secret: key.client_secret,
-    };
+    content = await fs.readFile(CREDENTIALS_PATH, 'utf8');
   } catch (err: any) {
     if (err.code === 'ENOENT') {
+      throw new Error(describeMissingCredentials(CREDENTIALS_PATH, envId, envSecret));
+    }
+    if (err.code === 'EACCES') {
       throw new Error(
-        'No OAuth credentials found. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET ' +
-          'environment variables, or place a credentials.json file in the project root.'
+        `credentials.json exists at ${CREDENTIALS_PATH} but is not readable (EACCES). ` +
+          'Fix its permissions, or set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET instead.'
       );
     }
     throw err;
   }
+
+  let keys: any;
+  try {
+    keys = JSON.parse(content);
+  } catch {
+    throw new Error(
+      `${CREDENTIALS_PATH} is not valid JSON. Re-download the OAuth client JSON from the ` +
+        'Google Cloud Console (APIs & Services -> Credentials -> your OAuth client -> Download JSON) ' +
+        'and save it unmodified.'
+    );
+  }
+
+  return extractClientSecrets(keys, CREDENTIALS_PATH);
+}
+
+/**
+ * Validates the shape of a parsed credentials.json and returns the OAuth client
+ * pair, or throws an error that says what is wrong with the file.
+ *
+ * Kept separate from the filesystem so every branch is testable, and because the
+ * shape errors are what users actually hit: issue #57 reported the failure
+ * surfacing as "Cannot destructure property 'client_secret' of
+ * 'credentials.installed' as it is undefined", which names no file and suggests
+ * no fix.
+ */
+export function extractClientSecrets(
+  keys: any,
+  credentialsPath: string
+): { client_id: string; client_secret: string } {
+  const key = keys?.installed || keys?.web;
+  if (!key) {
+    // Usually a service-account key or an API key rather than an OAuth client.
+    const shape =
+      Object.keys(keys ?? {})
+        .slice(0, 5)
+        .join(', ') || 'no top-level keys';
+    throw new Error(
+      `${credentialsPath} has no "installed" or "web" section, so it is not an OAuth client ` +
+        `file (found: ${shape}). Download an OAuth 2.0 Client ID of type "Desktop app" or ` +
+        '"Web application" from the Google Cloud Console; a service-account key will not work.'
+    );
+  }
+
+  const missing = ['client_id', 'client_secret'].filter((field) => !key[field]);
+  if (missing.length > 0) {
+    throw new Error(
+      `${credentialsPath} is missing ${missing.join(' and ')} inside its ` +
+        `"${keys.installed ? 'installed' : 'web'}" section. Re-download the OAuth client JSON ` +
+        'from the Google Cloud Console and save it unmodified.'
+    );
+  }
+
+  return { client_id: key.client_id, client_secret: key.client_secret };
 }
 
 // ---------------------------------------------------------------------------
