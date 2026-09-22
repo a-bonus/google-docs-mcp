@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import {
   WORKSPACE_EXPORT_DEFAULTS,
@@ -371,8 +371,28 @@ describe('downloadFile integration', () => {
     });
   });
 
-  describe('absolute path outside CWD', () => {
-    it('should accept absolute savePath outside CWD', async () => {
+  describe('absolute path outside the download roots', () => {
+    // `savePath` is chosen by the agent, which routinely reads untrusted
+    // content, so an unrestricted absolute path is an arbitrary file write
+    // primitive (#146). Writing outside the working directory is still
+    // supported, but the operator opts into it rather than the agent.
+    afterEach(() => {
+      delete process.env.GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS;
+    });
+
+    it('should refuse an absolute savePath outside the allowed roots', async () => {
+      createMockDrive();
+
+      await expect(
+        toolExecute({ fileId: 'f1', savePath: '/tmp/test-downloads/report.pdf' }, { log: mockLog })
+      ).rejects.toThrow(UserError);
+
+      expect(mockMkdirSync).not.toHaveBeenCalled();
+      expect(mockCreateWriteStream).not.toHaveBeenCalled();
+    });
+
+    it('should accept the same path when the operator allows that root', async () => {
+      process.env.GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS = '/tmp/test-downloads';
       createMockDrive();
 
       const result = await toolExecute(
@@ -383,6 +403,19 @@ describe('downloadFile integration', () => {
       const parsed = JSON.parse(result);
       expect(parsed.savedTo).toBe('/tmp/test-downloads/report.pdf');
       expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/test-downloads', { recursive: true });
+    });
+
+    it('should refuse ../ traversal out of the working directory', async () => {
+      createMockDrive();
+
+      await expect(
+        toolExecute(
+          { fileId: 'f1', savePath: '../../../../../../etc/cron.d/pwn' },
+          { log: mockLog }
+        )
+      ).rejects.toThrow(UserError);
+
+      expect(mockCreateWriteStream).not.toHaveBeenCalled();
     });
   });
 

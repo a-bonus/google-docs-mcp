@@ -337,20 +337,21 @@ Visit the server root URL (`/`) for setup instructions and a ready-to-copy clien
 
 ### Environment Variables
 
-| Variable               | Description                                                                                                                   |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `MCP_TRANSPORT`        | Set to `httpStream` to enable remote mode (default: `stdio`)                                                                  |
-| `BASE_URL`             | Public URL of the deployed server (required for OAuth redirects)                                                              |
-| `GOOGLE_CLIENT_ID`     | OAuth client ID (Web application type)                                                                                        |
-| `GOOGLE_CLIENT_SECRET` | OAuth client secret                                                                                                           |
-| `MCP_TOOL_GROUPS`      | Optional comma-separated tool groups to register: `docs`, `drive`, `sheets`, `utils`, `gmail`, `calendar`, `script`, or `all` |
-| `ALLOWED_DOMAINS`      | Comma-separated list of allowed Google Workspace domains (optional)                                                           |
-| `PORT`                 | HTTP port (default: `8080`)                                                                                                   |
-| `TOKEN_STORE`          | Set to `firestore` for persistent token storage (default: in-memory)                                                          |
-| `JWT_SIGNING_KEY`      | Fixed signing key so tokens survive restarts (auto-generated if not set)                                                      |
-| `REFRESH_TOKEN_TTL`    | Refresh token lifetime in seconds (default: `2592000` / 30 days)                                                              |
-| `GCLOUD_PROJECT`       | GCP project ID for Firestore (required when `TOKEN_STORE=firestore`)                                                          |
-| `MCP_STATELESS`        | Set to `true` for serverless deployments (Cloud Run, etc.) — disables session tracking to survive scale-to-zero               |
+| Variable                         | Description                                                                                                                   |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_TRANSPORT`                  | Set to `httpStream` to enable remote mode (default: `stdio`)                                                                  |
+| `BASE_URL`                       | Public URL of the deployed server (required for OAuth redirects)                                                              |
+| `GOOGLE_CLIENT_ID`               | OAuth client ID (Web application type)                                                                                        |
+| `GOOGLE_CLIENT_SECRET`           | OAuth client secret                                                                                                           |
+| `MCP_TOOL_GROUPS`                | Optional comma-separated tool groups to register: `docs`, `drive`, `sheets`, `utils`, `gmail`, `calendar`, `script`, or `all` |
+| `ALLOWED_DOMAINS`                | Comma-separated list of allowed Google Workspace domains (optional)                                                           |
+| `PORT`                           | HTTP port (default: `8080`)                                                                                                   |
+| `TOKEN_STORE`                    | Set to `firestore` for persistent token storage (default: in-memory)                                                          |
+| `JWT_SIGNING_KEY`                | Fixed signing key so tokens survive restarts (auto-generated if not set)                                                      |
+| `REFRESH_TOKEN_TTL`              | Refresh token lifetime in seconds (default: `2592000` / 30 days)                                                              |
+| `GCLOUD_PROJECT`                 | GCP project ID for Firestore (required when `TOKEN_STORE=firestore`)                                                          |
+| `MCP_STATELESS`                  | Set to `true` for serverless deployments (Cloud Run, etc.) — disables session tracking to survive scale-to-zero               |
+| `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS` | Directories `downloadFile` may write to in stdio mode, delimited by `:` (`;` on Windows). Defaults to the working directory   |
 
 ### Setup
 
