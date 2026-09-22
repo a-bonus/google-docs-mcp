@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises';
 import { getDriveClient } from '../../clients.js';
 import { requestClients } from '../../remoteWrapper.js';
 import { createDownloadToken } from '../../downloadProxy.js';
+import { ensureWithinDownloadRoots, parseDownloadRoots } from './savePathGuard.js';
 
 const isRemote = process.env.MCP_TRANSPORT === 'httpStream';
 
@@ -242,6 +243,14 @@ export function register(server: FastMCP) {
           }
         }
         resolvedSavePath = path.resolve(resolvedSavePath);
+
+        // `savePath` is agent-controlled and reaches the filesystem directly, so
+        // confine it before creating directories or opening a write stream.
+        try {
+          resolvedSavePath = ensureWithinDownloadRoots(resolvedSavePath, parseDownloadRoots());
+        } catch (boundaryError: any) {
+          throw new UserError(boundaryError?.message || String(boundaryError));
+        }
 
         fs.mkdirSync(path.dirname(resolvedSavePath), { recursive: true });
 
