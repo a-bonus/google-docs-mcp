@@ -228,13 +228,35 @@ try {
 
     logger.info(`MCP Server running at ${process.env.BASE_URL || `http://0.0.0.0:${port}`}/mcp`);
   } else {
-    await initializeGoogleClient();
     logger.info('Starting Ultimate Google Docs & Sheets MCP server...');
 
     const cachedToolsList = await buildCachedToolsListPayload(registeredTools);
     await server.start({ transportType: 'stdio' as const });
     installCachedToolsListHandler(server, cachedToolsList);
     logger.info('MCP Server running using stdio. Awaiting client connection...');
+
+    // Warm up the Google client *after* the transport is live, and never let it
+    // stop the server from running.
+    //
+    // Authorizing before server.start() meant a host could never complete the
+    // MCP `initialize` handshake when credentials were unavailable: missing
+    // credentials threw and the catch below called process.exit(1), while a
+    // missing saved token sent authorize() into the interactive browser flow,
+    // which blocks on a local callback server and hangs startup indefinitely.
+    // Either way the client saw "server exited" instead of a handshake.
+    //
+    // Tools already resolve the client lazily (getDocsClient() and friends call
+    // initializeGoogleClient() per request and raise a UserError when it fails),
+    // so deferring this costs nothing and keeps auth problems scoped to the
+    // calls that actually need Google.
+    void initializeGoogleClient().catch((authError: any) => {
+      logger.error(
+        `Google authorization is not available yet: ${authError?.message || authError} ` +
+          'The server is running and will answer initialize and tools/list; individual tool ' +
+          'calls will fail until authorization succeeds. Run `npx @a-bonus/google-docs-mcp auth` ' +
+          'to complete the OAuth flow.'
+      );
+    });
   }
   logger.info('Process-level error handling configured to prevent crashes from timeout errors.');
 } catch (startError: any) {
