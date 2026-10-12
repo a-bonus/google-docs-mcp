@@ -11,6 +11,8 @@ import { register as deleteRange } from './deleteRange.js';
 import { register as modifyText } from './modifyText.js';
 import { register as findAndReplace } from './findAndReplace.js';
 import { register as findElement } from './findElement.js';
+import { register as listSuggestions } from './listSuggestions.js';
+import { register as manageSuggestions } from './manageSuggestions.js';
 
 // Structure
 import { register as insertTable } from './insertTable.js';
@@ -47,6 +49,8 @@ export function registerDocsTools(server: FastMCP) {
   modifyText(server);
   findAndReplace(server);
   findElement(server);
+  listSuggestions(server);
+  manageSuggestions(server);
 
   // Structure
   insertTable(server);

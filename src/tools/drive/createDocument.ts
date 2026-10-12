@@ -1,6 +1,7 @@
 import type { FastMCP } from 'fastmcp';
 import { UserError } from 'fastmcp';
 import { z } from 'zod';
+import { Readable } from 'node:stream';
 import { drive_v3 } from 'googleapis';
 import { getDriveClient, getDocsClient } from '../../clients.js';
 import { insertMarkdown, formatInsertResult } from '../../markdown-transformer/index.js';
@@ -9,7 +10,7 @@ export function register(server: FastMCP) {
   server.addTool({
     name: 'createDocument',
     description:
-      'Creates a new empty Google Document. Optionally places it in a specific folder and adds initial text content.',
+      'Creates a new Google Document, or a native Markdown (.md) file when fileType is markdown. Optionally places it in a specific folder and adds initial text content.',
     parameters: z.strictObject({
       title: z.string().min(1).describe('Title for the new document.'),
       parentFolderId: z
@@ -29,7 +30,14 @@ export function register(server: FastMCP) {
         .optional()
         .default('markdown')
         .describe(
-          "How to interpret initialContent. 'markdown' (default) converts markdown to formatted Google Docs content. 'raw' inserts the text as-is without any conversion."
+          "How to interpret initialContent for Google Docs. 'markdown' (default) converts markdown to formatted Google Docs content. 'raw' inserts the text as-is without any conversion. Ignored for native markdown files, which always store raw source."
+        ),
+      fileType: z
+        .enum(['gdoc', 'markdown'])
+        .optional()
+        .default('gdoc')
+        .describe(
+          "'gdoc' (default) creates a Google Document and converts markdown to formatted content. 'markdown' creates a native .md Drive file (text/markdown) with the raw source, editable natively in Docs/Drive."
         ),
     }),
     execute: async (args, { log }) => {
@@ -37,6 +45,41 @@ export function register(server: FastMCP) {
       log.info(`Creating new document "${args.title}"`);
 
       try {
+        if (args.fileType === 'markdown') {
+          const title = args.title.trim();
+          const name = /\.md$/i.test(title) || /\.markdown$/i.test(title) ? title : `${title}.md`;
+          const metadata: drive_v3.Schema$File = {
+            name,
+            mimeType: 'text/markdown',
+          };
+          if (args.parentFolderId) metadata.parents = [args.parentFolderId];
+          const created = await drive.files.create({
+            requestBody: metadata,
+            ...(args.initialContent !== undefined
+              ? {
+                  media: {
+                    mimeType: 'text/markdown',
+                    body: Readable.from([args.initialContent]),
+                  },
+                }
+              : {}),
+            fields: 'id,name,mimeType,webViewLink',
+            supportsAllDrives: true,
+          });
+          return JSON.stringify(
+            {
+              id: created.data.id,
+              name: created.data.name,
+              mimeType: created.data.mimeType,
+              url: created.data.webViewLink,
+              contentInserted: args.initialContent !== undefined,
+              fileType: 'markdown',
+            },
+            null,
+            2
+          );
+        }
+
         const documentMetadata: drive_v3.Schema$File = {
           name: args.title,
           mimeType: 'application/vnd.google-apps.document',

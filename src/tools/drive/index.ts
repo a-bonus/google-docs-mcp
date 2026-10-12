@@ -12,6 +12,7 @@ import { register as copyFile } from './copyFile.js';
 import { register as renameFile } from './renameFile.js';
 import { register as deleteFile } from './deleteFile.js';
 import { register as createDocument } from './createDocument.js';
+import { register as markdownFiles } from './markdownFiles.js';
 import { register as createFromTemplate } from './createFromTemplate.js';
 import { register as downloadFile } from './downloadFile.js';
 import { register as setFilePermission } from './setFilePermission.js';
@@ -30,6 +31,7 @@ export function registerDriveTools(server: FastMCP) {
   renameFile(server);
   deleteFile(server);
   createDocument(server);
+  markdownFiles(server);
   createFromTemplate(server);
   downloadFile(server);
   setFilePermission(server);

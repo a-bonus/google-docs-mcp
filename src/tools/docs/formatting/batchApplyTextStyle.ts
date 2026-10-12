@@ -4,6 +4,7 @@ import type { docs_v1 } from 'googleapis';
 import { getDocsClient } from '../../../clients.js';
 import { BatchApplyTextStyleToolParameters, BatchApplyTextStyleToolArgs } from '../../../types.js';
 import * as GDocsHelpers from '../../../googleDocsApiHelpers.js';
+import { suggestModeNote, toUserError, validateSuggestModeRequests } from '../../../suggestions.js';
 
 // Mirrors MAX_BATCH_UPDATE_REQUESTS in googleDocsApiHelpers.ts — Google's own
 // per-batchUpdate-call request ceiling, not an arbitrary choice.
@@ -85,12 +86,23 @@ export function register(server: FastMCP) {
         throw new UserError(`No operations could be applied. Skipped: ${JSON.stringify(skipped)}`);
       }
 
+      if ((args as any).suggestMode) {
+        const problem = validateSuggestModeRequests(requests);
+        if (problem) throw new UserError(problem);
+      }
       let apiCalls = 0;
+      let commentUpdateState: string | undefined;
+      const suggestionResponses: any[] = [];
       const totalChunks = Math.ceil(requests.length / MAX_REQUESTS_PER_CALL);
       try {
         for (let i = 0; i < requests.length; i += MAX_REQUESTS_PER_CALL) {
           const chunk = requests.slice(i, i + MAX_REQUESTS_PER_CALL);
-          await GDocsHelpers.executeBatchUpdate(docs, args.documentId, chunk);
+          const res: any = await GDocsHelpers.executeBatchUpdate(docs, args.documentId, chunk, {
+            suggestMode: (args as any).suggestMode,
+          });
+          if (Array.isArray(res?.suggestionResponses))
+            suggestionResponses.push(...res.suggestionResponses);
+          if (res?.commentUpdateState) commentUpdateState = res.commentUpdateState;
           apiCalls++;
         }
       } catch (error: any) {
@@ -103,7 +115,10 @@ export function register(server: FastMCP) {
 
       const summary =
         `Applied ${requests.length}/${args.operations.length} text style operation(s) ` +
-        `(${Array.from(fieldsSeen).join(', ')}) to doc ${args.documentId} in ${apiCalls} Docs API call(s).`;
+        `(${Array.from(fieldsSeen).join(', ')}) to doc ${args.documentId} in ${apiCalls} Docs API call(s)` +
+        ((args as any).suggestMode
+          ? ' as suggestions.' + suggestModeNote(true, commentUpdateState, suggestionResponses)
+          : '.');
 
       if (skipped.length > 0) {
         return `${summary} Skipped ${skipped.length}: ${JSON.stringify(skipped)}`;

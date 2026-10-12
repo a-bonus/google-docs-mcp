@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getDocsClient } from '../../clients.js';
 import { DocumentIdParameter, MarkdownConversionError } from '../../types.js';
 import * as GDocsHelpers from '../../googleDocsApiHelpers.js';
+import { suggestModeNote, validateSuggestModeRequests } from '../../suggestions.js';
 import { insertMarkdown, formatInsertResult } from '../../markdown-transformer/index.js';
 import { TAB_BODY_RANGE_FIELDS } from '../docs/tabFieldMasks.js';
 
@@ -36,6 +37,11 @@ export function register(server: FastMCP) {
         .describe(
           'If true (default), the first H1 heading (# ...) in the markdown is styled as a Google Docs TITLE instead of Heading 1. Useful when the markdown represents a full document whose first line is the document title. Set to false if the first H1 should remain a Heading 1.'
         ),
+      suggestMode: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe('When true, apply as pending suggestions for review instead of direct edits.'),
     }),
     execute: async (args, { log }) => {
       const docs = await getDocsClient();
@@ -44,11 +50,15 @@ export function register(server: FastMCP) {
       );
 
       try {
-        // 1. Get document structure
+        if (args.suggestMode) {
+        }
+        // 1. Get document structure (suggest mode needs INLINE indices per API docs)
         const doc = await docs.documents.get({
           documentId: args.documentId,
           includeTabsContent: !!args.tabId,
-          suggestionsViewMode: 'PREVIEW_WITHOUT_SUGGESTIONS',
+          suggestionsViewMode: args.suggestMode
+            ? 'SUGGESTIONS_INLINE'
+            : 'PREVIEW_WITHOUT_SUGGESTIONS',
           fields: args.tabId ? TAB_BODY_RANGE_FIELDS : 'body(content(startIndex,endIndex))',
         });
 
@@ -94,11 +104,16 @@ export function register(server: FastMCP) {
             deleteRange.tabId = args.tabId;
           }
           log.info(`Deleting content from index ${startIndex} to ${endIndex}`);
-          await GDocsHelpers.executeBatchUpdate(docs, args.documentId, [
-            {
-              deleteContentRange: { range: deleteRange },
-            },
-          ]);
+          await GDocsHelpers.executeBatchUpdate(
+            docs,
+            args.documentId,
+            [
+              {
+                deleteContentRange: { range: deleteRange },
+              },
+            ],
+            { suggestMode: args.suggestMode }
+          );
           log.info(`Delete complete.`);
         }
 
@@ -169,11 +184,23 @@ export function register(server: FastMCP) {
           startIndex,
           tabId: args.tabId,
           firstHeadingAsTitle: args.firstHeadingAsTitle,
+          suggestMode: args.suggestMode,
         });
 
         const debugSummary = formatInsertResult(result);
         log.info(debugSummary);
-        return `Successfully replaced document content with ${args.markdown.length} characters of markdown.\n\n${debugSummary}`;
+        const base = `Successfully replaced document content with ${args.markdown.length} characters of markdown.\n\n${debugSummary}`;
+        if (args.suggestMode) {
+          return (
+            base +
+            suggestModeNote(
+              true,
+              (result.batchUpdate as any)?.commentUpdateState,
+              (result.batchUpdate as any)?.suggestionResponses
+            )
+          );
+        }
+        return base;
       } catch (error: any) {
         log.error(`Error replacing document with markdown: ${error.message}`);
         if (error instanceof UserError || error instanceof MarkdownConversionError) {

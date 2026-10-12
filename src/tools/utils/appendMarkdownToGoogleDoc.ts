@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getDocsClient } from '../../clients.js';
 import { DocumentIdParameter, MarkdownConversionError } from '../../types.js';
 import * as GDocsHelpers from '../../googleDocsApiHelpers.js';
+import { suggestModeNote, validateSuggestModeRequests } from '../../suggestions.js';
 import { insertMarkdown, formatInsertResult } from '../../markdown-transformer/index.js';
 import { TAB_BODY_END_INDEX_FIELDS } from '../docs/tabFieldMasks.js';
 
@@ -32,6 +33,11 @@ export function register(server: FastMCP) {
         .describe(
           'If true, the first H1 heading (# ...) in the markdown is styled as a Google Docs TITLE instead of Heading 1. Useful when the markdown represents a full document whose first line is the document title.'
         ),
+      suggestMode: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe('When true, apply as pending suggestions for review instead of direct edits.'),
     }),
     execute: async (args, { log }) => {
       const docs = await getDocsClient();
@@ -40,11 +46,15 @@ export function register(server: FastMCP) {
       );
 
       try {
-        // 1. Get document end index
+        if (args.suggestMode) {
+        }
+        // 1. Get document end index (suggest mode needs INLINE indices per API docs)
         const doc = await docs.documents.get({
           documentId: args.documentId,
           includeTabsContent: !!args.tabId,
-          suggestionsViewMode: 'PREVIEW_WITHOUT_SUGGESTIONS',
+          suggestionsViewMode: args.suggestMode
+            ? 'SUGGESTIONS_INLINE'
+            : 'PREVIEW_WITHOUT_SUGGESTIONS',
           fields: args.tabId ? TAB_BODY_END_INDEX_FIELDS : 'body(content(endIndex))',
         });
 
@@ -78,14 +88,19 @@ export function register(server: FastMCP) {
           if (args.tabId) {
             location.tabId = args.tabId;
           }
-          await GDocsHelpers.executeBatchUpdate(docs, args.documentId, [
-            {
-              insertText: {
-                location,
-                text: '\n\n',
+          await GDocsHelpers.executeBatchUpdate(
+            docs,
+            args.documentId,
+            [
+              {
+                insertText: {
+                  location,
+                  text: '\n\n',
+                },
               },
-            },
-          ]);
+            ],
+            { suggestMode: args.suggestMode }
+          );
           startIndex += 2;
           log.info(`Added spacing, new start index: ${startIndex}`);
         }
@@ -95,11 +110,23 @@ export function register(server: FastMCP) {
           startIndex,
           tabId: args.tabId,
           firstHeadingAsTitle: args.firstHeadingAsTitle,
+          suggestMode: args.suggestMode,
         });
 
         const debugSummary = formatInsertResult(result);
         log.info(debugSummary);
-        return `Successfully appended ${args.markdown.length} characters of markdown.\n\n${debugSummary}`;
+        const base = `Successfully appended ${args.markdown.length} characters of markdown.\n\n${debugSummary}`;
+        if (args.suggestMode) {
+          return (
+            base +
+            suggestModeNote(
+              true,
+              (result.batchUpdate as any)?.commentUpdateState,
+              (result.batchUpdate as any)?.suggestionResponses
+            )
+          );
+        }
+        return base;
       } catch (error: any) {
         log.error(`Error appending markdown: ${error.message}`);
         if (error instanceof UserError || error instanceof MarkdownConversionError) {

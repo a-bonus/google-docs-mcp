@@ -5,6 +5,7 @@ import { docs_v1 } from 'googleapis';
 import { getDocsClient } from '../../clients.js';
 import { DocumentIdParameter } from '../../types.js';
 import * as GDocsHelpers from '../../googleDocsApiHelpers.js';
+import { suggestModeNote, toUserError, validateSuggestModeRequests } from '../../suggestions.js';
 
 export function register(server: FastMCP) {
   server.addTool({
@@ -32,6 +33,13 @@ export function register(server: FastMCP) {
         .describe(
           'The ID of the specific tab to delete from. If not specified, deletes from the first tab (or legacy document.body for documents without tabs).'
         ),
+      suggestMode: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          'When true, propose the deletion as a pending suggestion for review instead of deleting directly.'
+        ),
     }).refine((data) => data.endIndex > data.startIndex, {
       message: 'endIndex must be greater than startIndex',
       path: ['endIndex'],
@@ -39,7 +47,7 @@ export function register(server: FastMCP) {
     execute: async (args, { log }) => {
       const docs = await getDocsClient();
       log.info(
-        `Deleting range ${args.startIndex}-${args.endIndex} in doc ${args.documentId}${args.tabId ? ` (tab: ${args.tabId})` : ''}`
+        `Deleting range ${args.startIndex}-${args.endIndex} in doc ${args.documentId}${args.tabId ? ` (tab: ${args.tabId})` : ''}${args.suggestMode ? ' [suggestMode]' : ''}`
       );
       if (args.endIndex <= args.startIndex) {
         throw new UserError('End index must be greater than start index for deletion.');
@@ -61,12 +69,25 @@ export function register(server: FastMCP) {
         const request: docs_v1.Schema$Request = {
           deleteContentRange: { range },
         };
-        await GDocsHelpers.executeBatchUpdate(docs, args.documentId, [request]);
-        return `Successfully deleted content in range ${args.startIndex}-${args.endIndex}${args.tabId ? ` in tab ${args.tabId}` : ''}.`;
+        if (args.suggestMode) {
+          const problem = validateSuggestModeRequests([request]);
+          if (problem) throw new UserError(problem);
+        }
+        const res: any = await GDocsHelpers.executeBatchUpdate(docs, args.documentId, [request], {
+          suggestMode: args.suggestMode,
+        });
+        const base = `Successfully deleted content in range ${args.startIndex}-${args.endIndex}${args.tabId ? ` in tab ${args.tabId}` : ''}`;
+        if (args.suggestMode) {
+          return (
+            base +
+            ' as a suggestion.' +
+            suggestModeNote(true, res?.commentUpdateState, res?.suggestionResponses)
+          );
+        }
+        return base + '.';
       } catch (error: any) {
         log.error(`Error deleting range in doc ${args.documentId}: ${error.message || error}`);
-        if (error instanceof UserError) throw error;
-        throw new UserError(`Failed to delete range: ${error.message || 'Unknown error'}`);
+        toUserError(error, 'Failed to delete range');
       }
     },
   });

@@ -5,6 +5,7 @@ import { docs_v1 } from 'googleapis';
 import { getDocsClient } from '../../clients.js';
 import { DocumentIdParameter } from '../../types.js';
 import * as GDocsHelpers from '../../googleDocsApiHelpers.js';
+import { suggestModeNote, toUserError, validateSuggestModeRequests } from '../../suggestions.js';
 
 const FindAndReplaceParameters = DocumentIdParameter.extend({
   findText: z.string().min(1).describe('The text to search for in the document.'),
@@ -19,6 +20,13 @@ const FindAndReplaceParameters = DocumentIdParameter.extend({
     .string()
     .optional()
     .describe('Scope replacement to a specific tab. If omitted, replaces across all tabs.'),
+  suggestMode: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      'When true, propose replacements as pending suggestions for review instead of replacing directly.'
+    ),
 });
 
 export function register(server: FastMCP) {
@@ -48,14 +56,34 @@ export function register(server: FastMCP) {
           },
         };
 
-        const response = await GDocsHelpers.executeBatchUpdate(docs, args.documentId, [request]);
+        if (args.suggestMode) {
+          const problem = validateSuggestModeRequests([request]);
+          if (problem) throw new UserError(problem);
+        }
+        const response: any = await GDocsHelpers.executeBatchUpdate(
+          docs,
+          args.documentId,
+          [request],
+          {
+            suggestMode: args.suggestMode,
+          }
+        );
         const changed = response.replies?.[0]?.replaceAllText?.occurrencesChanged ?? 0;
 
-        return `Replaced ${changed} occurrence(s) of "${args.findText}" with "${args.replaceText}".`;
+        const base = `Replaced ${changed} occurrence(s) of "${args.findText}" with "${args.replaceText}"`;
+        if (args.suggestMode) {
+          return (
+            base +
+            ' as suggestions.' +
+            suggestModeNote(true, response?.commentUpdateState, response?.suggestionResponses, {
+              allNoops: changed === 0,
+            })
+          );
+        }
+        return base + '.';
       } catch (error: any) {
         log.error(`Error in findAndReplace for doc ${args.documentId}: ${error.message || error}`);
-        if (error instanceof UserError) throw error;
-        throw new UserError(`Failed to find and replace: ${error.message || 'Unknown error'}`);
+        toUserError(error, 'Failed to find and replace');
       }
     },
   });

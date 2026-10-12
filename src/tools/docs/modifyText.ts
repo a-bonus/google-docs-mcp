@@ -6,6 +6,7 @@ import { getDocsClient } from '../../clients.js';
 import { DocumentIdParameter, TextFindParameter, TextStyleParameters } from '../../types.js';
 import type { TextStyleArgs } from '../../types.js';
 import * as GDocsHelpers from '../../googleDocsApiHelpers.js';
+import { suggestModeNote, toUserError, validateSuggestModeRequests } from '../../suggestions.js';
 
 const RangeTarget = z
   .object({
@@ -32,6 +33,13 @@ const ModifyTextParameters = DocumentIdParameter.extend({
     .optional()
     .describe(
       'The ID of the specific tab to operate on. If not specified, operates on the first tab.'
+    ),
+  suggestMode: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      'When true, apply the modification as pending suggestions for review instead of direct edits.'
     ),
 })
   .refine((args) => args.text !== undefined || args.style !== undefined, {
@@ -169,7 +177,13 @@ export function register(server: FastMCP) {
           return 'No operations to perform.';
         }
 
-        await GDocsHelpers.executeBatchUpdate(docs, args.documentId, requests);
+        if (args.suggestMode) {
+          const problem = validateSuggestModeRequests(requests);
+          if (problem) throw new UserError(problem);
+        }
+        const res: any = await GDocsHelpers.executeBatchUpdate(docs, args.documentId, requests, {
+          suggestMode: args.suggestMode,
+        });
 
         // Build descriptive result
         const actions: string[] = [];
@@ -177,11 +191,18 @@ export function register(server: FastMCP) {
         else if (args.text !== undefined) actions.push('inserted text');
         if (args.style) actions.push('applied formatting');
 
-        return `Successfully ${actions.join(' and ')} at range ${startIndex}-${endIndex ?? startIndex + (args.text?.length ?? 0)}${args.tabId ? ` in tab ${args.tabId}` : ''}.`;
+        const base = `Successfully ${actions.join(' and ')} at range ${startIndex}-${endIndex ?? startIndex + (args.text?.length ?? 0)}${args.tabId ? ` in tab ${args.tabId}` : ''}`;
+        if (args.suggestMode) {
+          return (
+            base +
+            ' as suggestions.' +
+            suggestModeNote(true, res?.commentUpdateState, res?.suggestionResponses)
+          );
+        }
+        return base + '.';
       } catch (error: any) {
         log.error(`Error in modifyText for doc ${args.documentId}: ${error.message || error}`);
-        if (error instanceof UserError) throw error;
-        throw new UserError(`Failed to modify text: ${error.message || 'Unknown error'}`);
+        toUserError(error, 'Failed to modify text');
       }
     },
   });

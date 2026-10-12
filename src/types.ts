@@ -175,6 +175,11 @@ export const ApplyTextStyleToolParameters = DocumentIdParameter.extend({
     .describe(
       'The ID of the specific tab to apply formatting in. Use listDocumentTabs to get tab IDs. If not specified, operates on the first tab.'
     ),
+  suggestMode: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('When true, apply as pending suggestions for review instead of direct edits.'),
 });
 export type ApplyTextStyleToolArgs = z.infer<typeof ApplyTextStyleToolParameters>;
 
@@ -208,6 +213,11 @@ export const BatchApplyTextStyleToolParameters = DocumentIdParameter.extend({
     .describe(
       'The ID of the specific tab to apply formatting in. Applies to every operation in this call. If not specified, operates on the first tab.'
     ),
+  suggestMode: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('When true, apply as pending suggestions for review instead of direct edits.'),
 });
 export type BatchApplyTextStyleToolArgs = z.infer<typeof BatchApplyTextStyleToolParameters>;
 
@@ -239,6 +249,11 @@ export const ApplyParagraphStyleToolParameters = DocumentIdParameter.extend({
     .describe(
       'The ID of the specific tab to apply formatting in. Use listDocumentTabs to get tab IDs. If not specified, operates on the first tab.'
     ),
+  suggestMode: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe('When true, apply as pending suggestions for review instead of direct edits.'),
 });
 export type ApplyParagraphStyleToolArgs = z.infer<typeof ApplyParagraphStyleToolParameters>;
 

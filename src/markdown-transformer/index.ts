@@ -34,6 +34,8 @@ interface InsertOptions {
   tabId?: string;
   /** Treat the first H1 (`# ...`) as a Google Docs TITLE instead of HEADING_1. */
   firstHeadingAsTitle?: boolean;
+  /** When true, insert as pending suggestions (WriteControl.writeMode=SUGGEST). */
+  suggestMode?: boolean;
 }
 
 /** Debug metadata returned by insertMarkdown(). */
@@ -184,7 +186,9 @@ export async function insertMarkdown(
     };
   }
 
-  const batchUpdate = await executeBatchUpdateWithSplitting(docs, documentId, requests);
+  const batchUpdate = await executeBatchUpdateWithSplitting(docs, documentId, requests, {
+    suggestMode: options?.suggestMode,
+  });
 
   return {
     totalRequests: requests.length,

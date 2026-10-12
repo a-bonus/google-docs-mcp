@@ -7,6 +7,7 @@ import {
   NotImplementedError,
 } from '../../../types.js';
 import * as GDocsHelpers from '../../../googleDocsApiHelpers.js';
+import { suggestModeNote, toUserError, validateSuggestModeRequests } from '../../../suggestions.js';
 
 export function register(server: FastMCP) {
   server.addTool({
@@ -62,13 +63,31 @@ export function register(server: FastMCP) {
           return 'No valid text styling options were provided.';
         }
 
-        await GDocsHelpers.executeBatchUpdate(docs, args.documentId, [requestInfo.request]);
-        return `Successfully applied text style (${requestInfo.fields.join(', ')}) to range ${startIndex}-${endIndex}${args.tabId ? ` in tab ${args.tabId}` : ''}.`;
+        if ((args as any).suggestMode) {
+          const problem = validateSuggestModeRequests([requestInfo.request]);
+          if (problem) throw new UserError(problem);
+        }
+        const res: any = await GDocsHelpers.executeBatchUpdate(
+          docs,
+          args.documentId,
+          [requestInfo.request],
+          {
+            suggestMode: (args as any).suggestMode,
+          }
+        );
+        const base = `Successfully applied text style (${requestInfo.fields.join(', ')}) to range ${startIndex}-${endIndex}${args.tabId ? ` in tab ${args.tabId}` : ''}`;
+        if ((args as any).suggestMode) {
+          return (
+            base +
+            ' as suggestions.' +
+            suggestModeNote(true, res?.commentUpdateState, res?.suggestionResponses)
+          );
+        }
+        return base + '.';
       } catch (error: any) {
         log.error(`Error applying text style in doc ${args.documentId}: ${error.message || error}`);
-        if (error instanceof UserError) throw error;
         if (error instanceof NotImplementedError) throw error; // Should not happen here
-        throw new UserError(`Failed to apply text style: ${error.message || 'Unknown error'}`);
+        toUserError(error, 'Failed to apply text style');
       }
     },
   });

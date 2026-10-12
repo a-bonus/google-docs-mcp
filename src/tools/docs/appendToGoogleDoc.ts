@@ -5,6 +5,7 @@ import { docs_v1 } from 'googleapis';
 import { getDocsClient } from '../../clients.js';
 import { DocumentIdParameter, NotImplementedError } from '../../types.js';
 import * as GDocsHelpers from '../../googleDocsApiHelpers.js';
+import { suggestModeNote, toUserError, validateSuggestModeRequests } from '../../suggestions.js';
 import { TAB_BODY_END_INDEX_FIELDS } from './tabFieldMasks.js';
 
 export function register(server: FastMCP) {
@@ -27,6 +28,11 @@ export function register(server: FastMCP) {
         .describe(
           'The ID of the specific tab to append to. If not specified, appends to the first tab (or legacy document.body for documents without tabs).'
         ),
+      suggestMode: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe('When true, append as a pending suggestion for review instead of a direct edit.'),
     }),
     execute: async (args, { log }) => {
       const docs = await getDocsClient();
@@ -38,11 +44,13 @@ export function register(server: FastMCP) {
         // Determine if we need tabs content
         const needsTabsContent = !!args.tabId;
 
-        // Get the current end index
+        // Get the current end index (suggest mode needs INLINE indices per API docs)
         const docInfo = await docs.documents.get({
           documentId: args.documentId,
           includeTabsContent: needsTabsContent,
-          suggestionsViewMode: 'PREVIEW_WITHOUT_SUGGESTIONS',
+          suggestionsViewMode: args.suggestMode
+            ? 'SUGGESTIONS_INLINE'
+            : 'PREVIEW_WITHOUT_SUGGESTIONS',
           fields: needsTabsContent
             ? TAB_BODY_END_INDEX_FIELDS
             : 'body(content(endIndex)),documentStyle(pageSize)',
@@ -87,12 +95,26 @@ export function register(server: FastMCP) {
         const request: docs_v1.Schema$Request = {
           insertText: { location, text: textToInsert },
         };
-        await GDocsHelpers.executeBatchUpdate(docs, args.documentId, [request]);
+        if (args.suggestMode) {
+          const problem = validateSuggestModeRequests([request]);
+          if (problem) throw new UserError(problem);
+        }
+        const res: any = await GDocsHelpers.executeBatchUpdate(docs, args.documentId, [request], {
+          suggestMode: args.suggestMode,
+        });
 
         log.info(
           `Successfully appended to doc: ${args.documentId}${args.tabId ? ` (tab: ${args.tabId})` : ''}`
         );
-        return `Successfully appended text to ${args.tabId ? `tab ${args.tabId} in ` : ''}document ${args.documentId}.`;
+        const base = `Successfully appended text to ${args.tabId ? `tab ${args.tabId} in ` : ''}document ${args.documentId}`;
+        if (args.suggestMode) {
+          return (
+            base +
+            ' as a suggestion.' +
+            suggestModeNote(true, res?.commentUpdateState, res?.suggestionResponses)
+          );
+        }
+        return base + '.';
       } catch (error: any) {
         log.error(`Error appending to doc ${args.documentId}: ${error.message || error}`);
         if (error instanceof UserError) throw error;

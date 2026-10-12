@@ -7,6 +7,7 @@ import {
   NotImplementedError,
 } from '../../../types.js';
 import * as GDocsHelpers from '../../../googleDocsApiHelpers.js';
+import { suggestModeNote, toUserError, validateSuggestModeRequests } from '../../../suggestions.js';
 
 export function register(server: FastMCP) {
   server.addTool({
@@ -120,19 +121,37 @@ export function register(server: FastMCP) {
         }
 
         log.info(`Applying styles: ${requestInfo.fields.join(', ')}`);
-        await GDocsHelpers.executeBatchUpdate(docs, args.documentId, [requestInfo.request]);
+        if ((args as any).suggestMode) {
+          const problem = validateSuggestModeRequests([requestInfo.request]);
+          if (problem) throw new UserError(problem);
+        }
+        const res: any = await GDocsHelpers.executeBatchUpdate(
+          docs,
+          args.documentId,
+          [requestInfo.request],
+          {
+            suggestMode: (args as any).suggestMode,
+          }
+        );
 
-        return `Successfully applied paragraph styles (${requestInfo.fields.join(', ')}) to the paragraph${args.tabId ? ` in tab ${args.tabId}` : ''}.`;
+        const base = `Successfully applied paragraph styles (${requestInfo.fields.join(', ')}) to the paragraph${args.tabId ? ` in tab ${args.tabId}` : ''}`;
+        if ((args as any).suggestMode) {
+          return (
+            base +
+            ' as suggestions.' +
+            suggestModeNote(true, res?.commentUpdateState, res?.suggestionResponses)
+          );
+        }
+        return base + '.';
       } catch (error: any) {
         // Detailed error logging
         log.error(`Error applying paragraph style in doc ${args.documentId}:`);
         log.error(error.stack || error.message || error);
 
-        if (error instanceof UserError) throw error;
         if (error instanceof NotImplementedError) throw error;
 
         // Provide a more helpful error message
-        throw new UserError(`Failed to apply paragraph style: ${error.message || 'Unknown error'}`);
+        toUserError(error, 'Failed to apply paragraph style');
       }
     },
   });
