@@ -29,7 +29,7 @@
     "google-drive"
   ],
   "author": "a-bonus",
-  "license": "ISC",
+  "license": "MIT",
   "description": "MCP server for Google Docs, Sheets, Drive, Gmail, and Calendar",
   "dependencies": {
     "@google-cloud/firestore": "^8.3.0",
