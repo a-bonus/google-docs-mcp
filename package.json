@@ -1,6 +1,6 @@
 {
   "name": "@a-bonus/google-docs-mcp",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -10,6 +10,7 @@
   },
   "files": [
     "dist/",
+    "package.json",
     "README.md",
     "LICENSE"
   ],

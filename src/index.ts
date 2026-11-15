@@ -13,6 +13,7 @@
 //   BASE_URL=https://...               Public URL for OAuth redirects
 //   ALLOWED_DOMAINS=scio.cz,...        Restrict to specific Google Workspace domains
 
+import { createRequire } from 'node:module';
 import { FastMCP } from 'fastmcp';
 import { OAuthProxy } from 'fastmcp/auth';
 import {
@@ -29,6 +30,10 @@ import { FirestoreTokenStorage } from './firestoreTokenStorage.js';
 import { parseStatelessFlag } from './config.js';
 import { enableUpstreamOfflineAccess } from './upstreamAuth.js';
 import { logger } from './logger.js';
+
+const require = createRequire(import.meta.url);
+const packageJson = require('../package.json');
+const VERSION = packageJson.version;
 
 // --- Auth subcommand ---
 if (process.argv[2] === 'auth') {
@@ -164,7 +169,7 @@ if (oauthProxy) {
 
 const server = new FastMCP({
   name: 'Ultimate Google Docs & Sheets MCP Server',
-  version: '1.0.0',
+  version: VERSION,
   ...(isRemote &&
     oauthProxy && {
       authenticate: async (request: any) => {
