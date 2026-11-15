@@ -11,6 +11,7 @@ jobs:
 
     permissions:
       contents: write # needed for GitHub Release creation
+      id-token: write # needed for npm provenance with OIDC
 
     steps:
       - uses: actions/checkout@v4
@@ -34,8 +35,11 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Upgrade npm for provenance support
+        run: npm install -g npm@latest
+
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
