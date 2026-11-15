@@ -12,6 +12,8 @@ import { register as deleteSheet } from './deleteSheet.js';
 import { register as renameSheet } from './renameSheet.js';
 import { register as duplicateSheet } from './duplicateSheet.js';
 import { register as copySheetTo } from './copySheetTo.js';
+import { register as insertRows } from './insertRows.js';
+import { register as deleteRows } from './deleteRows.js';
 
 // Formatting & validation
 import { register as formatCells } from './formatCells.js';
@@ -58,6 +60,8 @@ export function registerSheetsTools(server: FastMCP) {
   renameSheet(server);
   duplicateSheet(server);
   copySheetTo(server);
+  insertRows(server);
+  deleteRows(server);
 
   // Formatting & validation
   formatCells(server);
