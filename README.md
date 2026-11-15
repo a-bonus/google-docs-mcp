@@ -142,6 +142,8 @@ for review instead of direct edits (requires Node 22+; `googleapis@184`).
 | `batchWrite`                  | Write to multiple ranges in one call                                  |
 | `appendRows`                  | Add rows to a sheet                                                   |
 | `clearRange`                  | Clear cell values                                                     |
+| `insertRows`                  | Insert empty rows, shifting rows below down                           |
+| `deleteRows`                  | Delete rows, shifting rows below up                                   |
 | `createSpreadsheet`           | Create a new spreadsheet                                              |
 | `addSheet`                    | Add a sheet/tab                                                       |
 | `deleteSheet`                 | Remove a sheet/tab                                                    |
