@@ -9,7 +9,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ensureWithinDownloadRoots, parseDownloadRoots } from './savePathGuard.js';
+import {
+  ensureWithinDownloadRoots,
+  parseDownloadRoots,
+  unsafeSegmentBelowRoot,
+} from './savePathGuard.js';
 
 let root: string;
 let outside: string;
@@ -103,5 +107,61 @@ describe('downloadFile integration: traversal is refused before any write', () =
     expect(() => guard(victim, [root])).toThrow();
     // Nothing was created: the boundary runs before mkdirSync/createWriteStream.
     expect(fs.existsSync(victim)).toBe(false);
+  });
+});
+
+describe('unsafeSegmentBelowRoot', () => {
+  const check = (relative: string, platform: NodeJS.Platform = 'linux') =>
+    unsafeSegmentBelowRoot(path.join(root, relative), [root], platform);
+
+  it.each([['report.pdf'], ['sub/dir/report.pdf'], ['Rēķins.pdf'], ['a.b.c']])(
+    'accepts %j',
+    (relative) => {
+      expect(check(relative)).toBeNull();
+    }
+  );
+
+  it.each([
+    ['.git/hooks/pre-commit', '.git'],
+    ['sub/.npmrc', '.npmrc'],
+    ['.GIT/config', '.GIT'],
+    ['\u200c.git/config', '\u200c.git'],
+    ['a\u202Eb/x', 'a\u202Eb'],
+  ])('refuses %j at segment %j on every platform', (relative, segment) => {
+    expect(check(relative)?.segment).toBe(segment);
+  });
+
+  it.each([
+    ['GIT~1/hooks/pre-commit', 'GIT~1'],
+    ['file.txt:stream', 'file.txt:stream'],
+    ['name./x', 'name.'],
+    ['name /x', 'name '],
+    ['CON', 'CON'],
+    ['sub/nul.txt', 'nul.txt'],
+  ])('refuses %j on Windows', (relative, segment) => {
+    expect(check(relative, 'win32')?.segment).toBe(segment);
+    expect(check(relative, 'linux')).toBeNull();
+  });
+
+  it('does not check segments of the root itself', () => {
+    const hiddenRoot = path.join(root, '.cache');
+    expect(unsafeSegmentBelowRoot(path.join(hiddenRoot, 'x.pdf'), [hiddenRoot])).toBeNull();
+  });
+
+  it('uses the deepest root, whatever the order', () => {
+    const inner = path.join(root, '.cache');
+    const target = path.join(inner, 'x.pdf');
+    expect(unsafeSegmentBelowRoot(target, [root, inner])).toBeNull();
+    expect(unsafeSegmentBelowRoot(target, [inner, root])).toBeNull();
+  });
+
+  it('checks where a symlink inside the root leads', () => {
+    fs.mkdirSync(path.join(root, '.hidden-target'), { recursive: true });
+    fs.symlinkSync(path.join(root, '.hidden-target'), path.join(root, 'innocent'));
+    expect(check('innocent/x')?.segment).toBe('.hidden-target');
+  });
+
+  it('returns null for a path outside every root', () => {
+    expect(unsafeSegmentBelowRoot(path.join(outside, '.git'), [root])).toBeNull();
   });
 });
