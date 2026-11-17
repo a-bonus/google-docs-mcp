@@ -1,6 +1,6 @@
 {
   "name": "@a-bonus/google-docs-mcp",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "type": "module",
   "engines": {
     "node": ">=22"
