@@ -1,6 +1,6 @@
 {
   "name": "@a-bonus/google-docs-mcp",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -35,6 +35,10 @@
   "author": "a-bonus",
   "license": "ISC",
   "description": "MCP server for Google Docs, Sheets, Drive, Gmail, and Calendar",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/a-bonus/google-docs-mcp"
+  },
   "dependencies": {
     "@google-cloud/firestore": "^8.3.0",
     "fastmcp": "^4.0.1",
