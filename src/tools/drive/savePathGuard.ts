@@ -91,3 +91,65 @@ export function ensureWithinDownloadRoots(savePath: string, roots: string[]): st
 
   return resolved;
 }
+
+const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)(\..*)?$/i;
+
+/** Why one path segment is unsafe for untrusted content, or null when it is fine. */
+function segmentProblem(segment: string, platform: NodeJS.Platform): string | null {
+  // Some filesystems (HFS+) ignore these when they compare names, so
+  // "\u200c.git" would land in the real ".git".
+  if (/[\p{Cf}\p{Zl}\p{Zp}]/u.test(segment)) return 'contains an invisible character';
+  if (segment.startsWith('.')) return 'is hidden (starts with ".")';
+  if (platform === 'win32') {
+    if (segment.includes(':')) return 'names an alternate data stream';
+    if (/[. ]$/.test(segment)) return 'ends in a dot or space, which Windows drops';
+    if (/~\d/.test(segment)) return 'looks like an 8.3 short name';
+    if (WINDOWS_DEVICE.test(segment)) return 'is a Windows device name';
+  }
+  return null;
+}
+
+/**
+ * First unsafe path segment below the deepest matching root, or null.
+ *
+ * Hidden files and folders hold config that tools load or execute (`.git/hooks`,
+ * `.npmrc`, `.envrc`, `.vscode`), so a writer of untrusted content refuses
+ * them, along with names a filesystem may silently map onto one (invisible
+ * characters; on Windows 8.3 short names, trailing dots, streams, devices).
+ * Segments of the root itself are not checked, so a root may live inside a
+ * hidden folder. The deepest root wins, so nested roots give one answer
+ * whatever their order.
+ */
+export function unsafeSegmentBelowRoot(
+  savePath: string,
+  roots: string[],
+  platform: NodeJS.Platform = process.platform
+): { segment: string; problem: string } | null {
+  const literalTarget = path.resolve(savePath);
+  const realTarget = canonicalize(literalTarget);
+  const deepest = (target: string, candidates: string[]) =>
+    candidates.filter((r) => isInside(target, r)).sort((a, b) => b.length - a.length)[0];
+
+  // Check the segments after symlinks are resolved (a link named "docs" may
+  // point at ".git") and as written (realpath may already have mapped a name
+  // the filesystem treats as equal onto the real one).
+  const realRoot = deepest(
+    realTarget,
+    roots.map((r) => canonicalize(r))
+  );
+  if (realRoot === undefined) return null;
+  const literalRoot = deepest(
+    literalTarget,
+    roots.map((r) => path.resolve(r))
+  );
+  const tails = [path.relative(realRoot, realTarget)];
+  if (literalRoot !== undefined) tails.push(path.relative(literalRoot, literalTarget));
+
+  for (const tail of tails) {
+    for (const segment of tail.split(path.sep).filter(Boolean)) {
+      const problem = segmentProblem(segment, platform);
+      if (problem) return { segment, problem };
+    }
+  }
+  return null;
+}

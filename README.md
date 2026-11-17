@@ -209,21 +209,22 @@ for review instead of direct edits (requires Node 22+; `googleapis@184`).
 
 ### Gmail
 
-| Tool                  | Description                                                                                                                 |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `listMessages`        | List or search messages using Gmail query syntax (`is:unread`, `from:`, `newer_than:`, etc.)                                |
-| `getMessage`          | Fetch a single message with decoded headers, plain-text body, HTML body, and attachment metadata                            |
-| `sendEmail`           | Send a plain-text email. Supports cc/bcc and threaded replies via `replyToMessageId`                                        |
-| `trashMessage`        | Move a message to Trash (reversible, same as clicking Delete in the Gmail UI)                                               |
-| `modifyMessageLabels` | Add or remove labels on a message — use to star, archive (remove `INBOX`), mark read (remove `UNREAD`)                      |
-| `listLabels`          | List all system and custom labels with their IDs                                                                            |
-| `createDraft`         | Compose a draft instead of sending immediately — for compose/review/send workflows                                          |
-| `listDrafts`          | List existing drafts with recipient, subject, and snippet                                                                   |
-| `getDraft`            | Fetch a single draft with full headers and body                                                                             |
-| `updateDraft`         | Replace the contents of an existing draft (full replace, not patch)                                                         |
-| `sendDraft`           | Send an existing draft by ID                                                                                                |
-| `deleteDraft`         | Permanently delete a draft (not moved to Trash — gone)                                                                      |
-| `triageInbox`         | **Composite:** fetch unread messages with content + heuristic flags (newsletter, meeting, action) for one-shot inbox triage |
+| Tool                        | Description                                                                                                                 |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `listMessages`              | List or search messages using Gmail query syntax (`is:unread`, `from:`, `newer_than:`, etc.)                                |
+| `getMessage`                | Fetch a single message with decoded headers, plain-text body, HTML body, and attachment metadata                            |
+| `downloadMessageAttachment` | Save one attachment of a message to a local file (stdio mode, inside `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS`)                      |
+| `sendEmail`                 | Send a plain-text email. Supports cc/bcc and threaded replies via `replyToMessageId`                                        |
+| `trashMessage`              | Move a message to Trash (reversible, same as clicking Delete in the Gmail UI)                                               |
+| `modifyMessageLabels`       | Add or remove labels on a message — use to star, archive (remove `INBOX`), mark read (remove `UNREAD`)                      |
+| `listLabels`                | List all system and custom labels with their IDs                                                                            |
+| `createDraft`               | Compose a draft instead of sending immediately — for compose/review/send workflows                                          |
+| `listDrafts`                | List existing drafts with recipient, subject, and snippet                                                                   |
+| `getDraft`                  | Fetch a single draft with full headers and body                                                                             |
+| `updateDraft`               | Replace the contents of an existing draft (full replace, not patch)                                                         |
+| `sendDraft`                 | Send an existing draft by ID                                                                                                |
+| `deleteDraft`               | Permanently delete a draft (not moved to Trash — gone)                                                                      |
+| `triageInbox`               | **Composite:** fetch unread messages with content + heuristic flags (newsletter, meeting, action) for one-shot inbox triage |
 
 ### Google Calendar
 
@@ -366,7 +367,7 @@ Visit the server root URL (`/`) for setup instructions and a ready-to-copy clien
 | `REFRESH_TOKEN_TTL`              | Refresh token lifetime in seconds (default: `2592000` / 30 days)                                                              |
 | `GCLOUD_PROJECT`                 | GCP project ID for Firestore (required when `TOKEN_STORE=firestore`)                                                          |
 | `MCP_STATELESS`                  | Set to `true` for serverless deployments (Cloud Run, etc.) — disables session tracking to survive scale-to-zero               |
-| `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS` | Directories `downloadFile` may write to in stdio mode, delimited by `:` (`;` on Windows). Defaults to the working directory   |
+| `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS` | Where `downloadFile` and `downloadMessageAttachment` may write in stdio mode, delimited by `:` (`;` on Windows). Default: cwd |
 | `GMAIL_ATTACHMENT_ROOTS`         | Directories Gmail drafts may attach files from in stdio mode, delimited by `:` (`;` on Windows). Unset disables attachments   |
 
 ### Setup
@@ -509,7 +510,7 @@ Without `GOOGLE_MCP_PROFILE`, behavior is unchanged.
 - **Markdown images:** Not yet supported in the markdown-to-Docs conversion.
 - **Deeply nested lists:** Lists with 3+ nesting levels may have formatting quirks.
 - **Gmail hard delete:** `trashMessage` moves messages to Trash (reversible). Permanent deletion requires the broader `https://mail.google.com/` scope and is not exposed in v0.1.
-- **Gmail attachments:** `getMessage` returns attachment metadata but does not download attachment bytes yet.
+- **Gmail attachment downloads:** `downloadMessageAttachment` saves one attachment per call and only in stdio mode. There is no bulk download yet.
 - **Gmail HTML email send:** `sendEmail` sends plain-text only. For HTML bodies, paste HTML into the `body` field — it will be delivered as text, not rendered.
 - **Calendar scope:** `calendar.events` permits event CRUD on existing calendars but cannot create or delete entire calendars themselves.
 - **Apps Script API is off by default:** every account must enable it once at <https://script.google.com/home/usersettings>. The tools cannot turn it on for you.

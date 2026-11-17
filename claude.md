@@ -1,6 +1,6 @@
 # Google Docs MCP Server
 
-FastMCP server with 129 tools for Google Docs, Sheets, Drive, Gmail, Calendar, and Apps Script.
+FastMCP server with 130 tools for Google Docs, Sheets, Drive, Gmail, Calendar, and Apps Script.
 
 ## Tool Categories
 
@@ -9,7 +9,7 @@ FastMCP server with 129 tools for Google Docs, Sheets, Drive, Gmail, Calendar, a
 | Docs        | 42    | `readDocument`, `insertText`, `modifyText`, `applyTextStyle`, `insertTable`, `listComments`, `listSuggestions`, `manageSuggestions`, ...   |
 | Drive       | 19    | `createDocument`, `searchDriveFiles`, `moveFile`, `createMarkdownFile`, `readMarkdownFile`, `updateMarkdownFile`, ...                      |
 | Sheets      | 44    | `readSpreadsheet`, `writeSpreadsheet`, `createTable`, `protectRange`, `addConditionalFormatting`, `insertChart`, ...                       |
-| Gmail       | 13    | `listMessages`, `getMessage`, `sendEmail`, `trashMessage`, `modifyMessageLabels`, `listLabels`, `createDraft`, `listDrafts`, `triageInbox` |
+| Gmail       | 14    | `listMessages`, `getMessage`, `sendEmail`, `trashMessage`, `modifyMessageLabels`, `listLabels`, `createDraft`, `listDrafts`, `triageInbox` |
 | Calendar    | 5     | `listEvents`, `createEvent`, `updateEvent`, `deleteEvent`, `quickAddEvent`                                                                 |
 | Apps Script | 3     | `createAppsScriptProject`, `getAppsScriptContent`, `updateAppsScriptContent`                                                               |
 | Utils       | 3     | `appendMarkdown`, `replaceDocumentWithMarkdown`, `replaceRangeWithMarkdown`                                                                |
@@ -26,7 +26,7 @@ The server supports Google Shared Drives. All Drive file operations (`files.list
 - **Resolved status:** May not persist in Google Docs UI (Drive API limitation)
 - **fixListFormatting:** Experimental, may not work reliably
 - **Gmail hard delete:** `trashMessage` only moves to Trash (reversible). Permanent deletion requires the full `https://mail.google.com/` scope, which is not requested.
-- **Gmail attachments:** `getMessage` exposes attachment metadata only — no download of attachment bytes yet.
+- **Gmail attachment downloads:** `downloadMessageAttachment` saves one attachment per call, stdio mode only, inside `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS`.
 - **Gmail draft attachments:** `createDraft` and `updateDraft` attach local files only from the directories in `GMAIL_ATTACHMENT_ROOTS`. Unset means every attachment is refused.
 - **Gmail send format:** `sendEmail` is plain-text only. HTML bodies are delivered as literal text.
 - **Calendar scope:** `calendar.events` covers event CRUD only. Cannot create or delete entire calendars.
