@@ -213,7 +213,7 @@ for review instead of direct edits (requires Node 22+; `googleapis@184`).
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `listMessages`              | List or search messages using Gmail query syntax (`is:unread`, `from:`, `newer_than:`, etc.)                                |
 | `getMessage`                | Fetch a single message with decoded headers, plain-text body, HTML body, and attachment metadata                            |
-| `downloadMessageAttachment` | Save one attachment of a message to a local file (stdio mode, inside `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS`)                      |
+| `downloadMessageAttachment` | Save one attachment of a message to a local file (stdio mode, inside `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS`, which must be set)   |
 | `sendEmail`                 | Send a plain-text email. Supports cc/bcc and threaded replies via `replyToMessageId`                                        |
 | `trashMessage`              | Move a message to Trash (reversible, same as clicking Delete in the Gmail UI)                                               |
 | `modifyMessageLabels`       | Add or remove labels on a message — use to star, archive (remove `INBOX`), mark read (remove `UNREAD`)                      |
@@ -353,22 +353,22 @@ Visit the server root URL (`/`) for setup instructions and a ready-to-copy clien
 
 ### Environment Variables
 
-| Variable                         | Description                                                                                                                   |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `MCP_TRANSPORT`                  | Set to `httpStream` to enable remote mode (default: `stdio`)                                                                  |
-| `BASE_URL`                       | Public URL of the deployed server (required for OAuth redirects)                                                              |
-| `GOOGLE_CLIENT_ID`               | OAuth client ID (Web application type)                                                                                        |
-| `GOOGLE_CLIENT_SECRET`           | OAuth client secret                                                                                                           |
-| `MCP_TOOL_GROUPS`                | Optional comma-separated tool groups to register: `docs`, `drive`, `sheets`, `utils`, `gmail`, `calendar`, `script`, or `all` |
-| `ALLOWED_DOMAINS`                | Comma-separated list of allowed Google Workspace domains (optional)                                                           |
-| `PORT`                           | HTTP port (default: `8080`)                                                                                                   |
-| `TOKEN_STORE`                    | Set to `firestore` for persistent token storage (default: in-memory)                                                          |
-| `JWT_SIGNING_KEY`                | Fixed signing key so tokens survive restarts (auto-generated if not set)                                                      |
-| `REFRESH_TOKEN_TTL`              | Refresh token lifetime in seconds (default: `2592000` / 30 days)                                                              |
-| `GCLOUD_PROJECT`                 | GCP project ID for Firestore (required when `TOKEN_STORE=firestore`)                                                          |
-| `MCP_STATELESS`                  | Set to `true` for serverless deployments (Cloud Run, etc.) — disables session tracking to survive scale-to-zero               |
-| `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS` | Where `downloadFile` and `downloadMessageAttachment` may write in stdio mode, delimited by `:` (`;` on Windows). Default: cwd |
-| `GMAIL_ATTACHMENT_ROOTS`         | Directories Gmail drafts may attach files from in stdio mode, delimited by `:` (`;` on Windows). Unset disables attachments   |
+| Variable                         | Description                                                                                                                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_TRANSPORT`                  | Set to `httpStream` to enable remote mode (default: `stdio`)                                                                                                                                |
+| `BASE_URL`                       | Public URL of the deployed server (required for OAuth redirects)                                                                                                                            |
+| `GOOGLE_CLIENT_ID`               | OAuth client ID (Web application type)                                                                                                                                                      |
+| `GOOGLE_CLIENT_SECRET`           | OAuth client secret                                                                                                                                                                         |
+| `MCP_TOOL_GROUPS`                | Optional comma-separated tool groups to register: `docs`, `drive`, `sheets`, `utils`, `gmail`, `calendar`, `script`, or `all`                                                               |
+| `ALLOWED_DOMAINS`                | Comma-separated list of allowed Google Workspace domains (optional)                                                                                                                         |
+| `PORT`                           | HTTP port (default: `8080`)                                                                                                                                                                 |
+| `TOKEN_STORE`                    | Set to `firestore` for persistent token storage (default: in-memory)                                                                                                                        |
+| `JWT_SIGNING_KEY`                | Fixed signing key so tokens survive restarts (auto-generated if not set)                                                                                                                    |
+| `REFRESH_TOKEN_TTL`              | Refresh token lifetime in seconds (default: `2592000` / 30 days)                                                                                                                            |
+| `GCLOUD_PROJECT`                 | GCP project ID for Firestore (required when `TOKEN_STORE=firestore`)                                                                                                                        |
+| `MCP_STATELESS`                  | Set to `true` for serverless deployments (Cloud Run, etc.) — disables session tracking to survive scale-to-zero                                                                             |
+| `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS` | Where `downloadFile` and `downloadMessageAttachment` may write in stdio mode, delimited by `:` (`;` on Windows). `downloadFile` defaults to cwd; unset disables `downloadMessageAttachment` |
+| `GMAIL_ATTACHMENT_ROOTS`         | Directories Gmail drafts may attach files from in stdio mode, delimited by `:` (`;` on Windows). Unset disables attachments                                                                 |
 
 ### Setup
 

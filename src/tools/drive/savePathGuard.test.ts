@@ -127,12 +127,17 @@ describe('unsafeSegmentBelowRoot', () => {
     ['.GIT/config', '.GIT'],
     ['\u200c.git/config', '\u200c.git'],
     ['a\u202Eb/x', 'a\u202Eb'],
+    ['photos/desktop.ini', 'desktop.ini'],
+    ['Desktop.INI', 'Desktop.INI'],
+    ['autorun.inf', 'autorun.inf'],
   ])('refuses %j at segment %j on every platform', (relative, segment) => {
     expect(check(relative)?.segment).toBe(segment);
   });
 
   it.each([
     ['GIT~1/hooks/pre-commit', 'GIT~1'],
+    ['PROGR~12/x', 'PROGR~12'],
+    ['Report~1.pdf', 'Report~1.pdf'],
     ['file.txt:stream', 'file.txt:stream'],
     ['name./x', 'name.'],
     ['name /x', 'name '],
@@ -142,6 +147,13 @@ describe('unsafeSegmentBelowRoot', () => {
     expect(check(relative, 'win32')?.segment).toBe(segment);
     expect(check(relative, 'linux')).toBeNull();
   });
+
+  it.each([['backup~2024.zip'], ['Report~1.final.pdf'], ['a~1b'], ['longname~1']])(
+    'allows %j on Windows: too long or the wrong shape for a short name',
+    (relative) => {
+      expect(check(relative, 'win32')).toBeNull();
+    }
+  );
 
   it('does not check segments of the root itself', () => {
     const hiddenRoot = path.join(root, '.cache');
