@@ -26,7 +26,7 @@ The server supports Google Shared Drives. All Drive file operations (`files.list
 - **Resolved status:** May not persist in Google Docs UI (Drive API limitation)
 - **fixListFormatting:** Experimental, may not work reliably
 - **Gmail hard delete:** `trashMessage` only moves to Trash (reversible). Permanent deletion requires the full `https://mail.google.com/` scope, which is not requested.
-- **Gmail attachment downloads:** `downloadMessageAttachment` saves one attachment per call, stdio mode only, inside `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS`.
+- **Gmail attachment downloads:** `downloadMessageAttachment` saves one attachment per call, stdio mode only, inside `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS`, which must be set (no cwd fallback).
 - **Gmail draft attachments:** `createDraft` and `updateDraft` attach local files only from the directories in `GMAIL_ATTACHMENT_ROOTS`. Unset means every attachment is refused.
 - **Gmail send format:** `sendEmail` is plain-text only. HTML bodies are delivered as literal text.
 - **Calendar scope:** `calendar.events` covers event CRUD only. Cannot create or delete entire calendars.

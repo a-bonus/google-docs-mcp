@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { UserError } from 'fastmcp';
@@ -10,6 +11,7 @@ import {
   sanitizeAttachmentFilename,
   decodeAttachmentData,
   markAsDownloaded,
+  parseAttachmentDownloadRoots,
   ATTACHMENT_DOWNLOAD_BYTE_LIMIT,
 } from './downloadMessageAttachment.js';
 
@@ -119,12 +121,26 @@ describe('sanitizeAttachmentFilename', () => {
     ['CON', '_CON'],
     ['nul.txt', '_nul.txt'],
     ['COM¹', '_COM¹'],
+    ['desktop.ini', '_desktop.ini'],
+    ['AUTORUN.INF', '_AUTORUN.INF'],
+    ['desktop.ini.txt', 'desktop.ini.txt'],
     ['..', 'attachment'],
     ['.', 'attachment'],
     ['', 'attachment'],
     [null, 'attachment'],
   ])('turns %j into %j', (input, expected) => {
     expect(sanitizeAttachmentFilename(input)).toBe(expected);
+  });
+
+  it.each([
+    ['Report~1.pdf', 'Report_1.pdf'],
+    ['GIT~1', 'GIT_1'],
+    ['PROGR~12', 'PROGR_12'],
+    ['backup~2024.zip', 'backup~2024.zip'],
+    ['a~1b.pdf', 'a~1b.pdf'],
+  ])('maps the 8.3 short-name shape %j to %j on Windows only', (input, expected) => {
+    expect(sanitizeAttachmentFilename(input, 'win32')).toBe(expected);
+    expect(sanitizeAttachmentFilename(input, 'linux')).toBe(input);
   });
 
   it('caps long names at 200 bytes and keeps the extension', () => {
@@ -139,6 +155,34 @@ describe('sanitizeAttachmentFilename', () => {
     expect(name).not.toMatch(/�/);
     expect(Buffer.from(name).toString()).toBe(name);
     expect(name.endsWith('.pdf')).toBe(true);
+  });
+});
+
+describe('parseAttachmentDownloadRoots', () => {
+  it.each([[''], ['  '], [path.delimiter]])('fails closed for %j', (value) => {
+    expect(() => parseAttachmentDownloadRoots(value)).toThrow(
+      /disabled because GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS is not set/
+    );
+  });
+
+  it('refuses a relative entry', () => {
+    expect(() => parseAttachmentDownloadRoots('downloads')).toThrow(/must be absolute/);
+  });
+
+  it.each([
+    ['the home directory', () => os.homedir()],
+    ['a parent of it', () => path.dirname(os.homedir())],
+    ['the filesystem root', () => path.parse(os.homedir()).root],
+  ])('refuses %s, which would expose the whole home folder', (_label, entry) => {
+    expect(() => parseAttachmentDownloadRoots(entry())).toThrow(/contains the home directory/);
+  });
+
+  it('accepts folders inside or beside the home directory', () => {
+    const inside = path.join(os.homedir(), 'Downloads', 'mail');
+    expect(parseAttachmentDownloadRoots([inside, root].join(path.delimiter))).toEqual([
+      inside,
+      root,
+    ]);
   });
 });
 
@@ -287,7 +331,7 @@ describe('downloadMessageAttachment', () => {
         // Same message whatever lies outside: no resolved path, no hint it is a directory.
         expect(error.message).toBe(
           'savePath must stay inside the allowed download directory ' +
-            '(GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS, default: the working directory).'
+            '(GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS).'
         );
         expect(getGmailClient).not.toHaveBeenCalled();
         expect(fs.readdirSync(outside)).toEqual([]);
@@ -373,11 +417,18 @@ describe('downloadMessageAttachment', () => {
       }
     );
 
-    it('defaults the root to the working directory when the env var is unset', async () => {
+    it('refuses every download while the env var is unset, without calling Gmail', async () => {
       delete process.env.GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS;
-      await expect(
-        run({ messageId: 'msg-1', partId: '1', savePath: path.join(root, 'x.pdf') })
-      ).rejects.toThrow(/must stay inside/);
+      const cwdTarget = path.join(process.cwd(), `unset-roots-${process.pid}.pdf`);
+      try {
+        await expect(run({ messageId: 'msg-1', partId: '1', savePath: cwdTarget })).rejects.toThrow(
+          /GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS is not set/
+        );
+        expect(getGmailClient).not.toHaveBeenCalled();
+        expect(fs.existsSync(cwdTarget)).toBe(false);
+      } finally {
+        fs.rmSync(cwdTarget, { force: true });
+      }
     });
   });
 
@@ -586,6 +637,53 @@ describe('downloadMessageAttachment', () => {
         /not available when the server runs in httpStream mode/
       );
       expect(getGmailClient).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('filesystems without hard links', () => {
+    const noLinks = () =>
+      vi
+        .spyOn(fsp, 'link')
+        .mockRejectedValue(Object.assign(new Error('not permitted'), { code: 'EPERM' }));
+
+    it('saves with an exclusive create instead', async () => {
+      const link = noLinks();
+      try {
+        const result = await run({ messageId: 'msg-1', partId: '1', savePath: root });
+        expect(fs.readFileSync(result.savedTo)).toEqual(PDF);
+        expect(fs.readdirSync(root)).toEqual(['report.pdf']);
+      } finally {
+        link.mockRestore();
+      }
+    });
+
+    it('removes the partial file when that write fails', async () => {
+      const link = noLinks();
+      const realOpen = fsp.open.bind(fsp);
+      let opens = 0;
+      const open = vi.spyOn(fsp, 'open').mockImplementation(async (...args: any[]) => {
+        const handle = await (realOpen as any)(...args);
+        if (++opens === 2) {
+          // The fallback's handle: write a little, then run out of space.
+          const write = handle.writeFile.bind(handle);
+          handle.writeFile = async (data: Buffer) => {
+            await write(data.subarray(0, 10));
+            throw Object.assign(new Error('no space left'), { code: 'ENOSPC' });
+          };
+        }
+        return handle;
+      });
+      try {
+        const error = await run({ messageId: 'msg-1', partId: '1', savePath: root }).catch(
+          (e) => e
+        );
+        expect(error.message).toBe('Could not save the attachment (ENOSPC).');
+        expect(opens).toBe(2);
+        expect(fs.readdirSync(root)).toEqual([]);
+      } finally {
+        open.mockRestore();
+        link.mockRestore();
+      }
     });
   });
 

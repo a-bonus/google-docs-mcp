@@ -5,12 +5,15 @@ import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { getGmailClient } from '../../clients.js';
 import {
+  WINDOWS_CONFIG_FILE,
+  WINDOWS_DEVICE,
   ensureWithinDownloadRoots,
-  parseDownloadRoots,
+  looksLikeShortName,
   unsafeSegmentBelowRoot,
 } from '../drive/savePathGuard.js';
 import { collectAttachments } from './helpers.js';
@@ -22,7 +25,6 @@ export const ATTACHMENT_DOWNLOAD_BYTE_LIMIT = 50 * 1024 * 1024;
 
 const BASE64URL = /^[A-Za-z0-9_-]*={0,2}$/;
 
-const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)(\..*)?$/i;
 // Bytes, not characters: ext4 and APFS cap a name at 255 bytes of UTF-8.
 const MAX_FILENAME_BYTES = 200;
 
@@ -42,18 +44,28 @@ function truncateUtf8(value: string, maxBytes: number): string {
  * Turns an attachment's file name, which the sender controls, into a single
  * safe path segment: no directory parts; no control, invisible (bidi override,
  * zero-width) or Windows-invalid characters; no leading dots (so no `.npmrc`
- * or `.envrc`); no trailing dots or spaces; no Windows device names; at most
- * 200 bytes of UTF-8 with the extension kept. Falls back to `attachment` when
- * nothing usable is left.
+ * or `.envrc`); no trailing dots or spaces; no Windows device names, and no
+ * `desktop.ini` or `autorun.inf`; on
+ * Windows no 8.3 short-name shape (`Report~1.pdf` becomes `Report_1.pdf`); at
+ * most 200 bytes of UTF-8 with the extension kept. Falls back to `attachment`
+ * when nothing usable is left.
  */
-export function sanitizeAttachmentFilename(name: string | null | undefined): string {
+export function sanitizeAttachmentFilename(
+  name: string | null | undefined,
+  platform: NodeJS.Platform = process.platform
+): string {
   let cleaned = (name ?? '')
     .replace(/[\x00-\x1F\x7F\\/:*?"<>|]|[\p{Cf}\p{Zl}\p{Zp}]/gu, '_')
     .trim()
     .replace(/[. ]+$/, '')
     .replace(/^\.+/, (dots) => '_'.repeat(dots.length));
   if (!cleaned) return 'attachment';
-  if (WINDOWS_RESERVED.test(cleaned)) cleaned = `_${cleaned}`;
+  if (WINDOWS_DEVICE.test(cleaned) || WINDOWS_CONFIG_FILE.test(cleaned)) cleaned = `_${cleaned}`;
+  // The save path guard refuses this shape on Windows; map it rather than fail
+  // over a name the caller never chose.
+  if (platform === 'win32' && looksLikeShortName(cleaned)) {
+    cleaned = cleaned.replace(/~(\d+)(?=\.[^.]*$|$)/, '_$1');
+  }
   if (Buffer.byteLength(cleaned, 'utf8') > MAX_FILENAME_BYTES) {
     const ext = truncateUtf8(path.extname(cleaned), 20);
     const stem = truncateUtf8(cleaned, MAX_FILENAME_BYTES - Buffer.byteLength(ext, 'utf8'));
@@ -128,8 +140,60 @@ export async function markAsDownloaded(
 }
 
 const BOUNDARY_MESSAGE =
-  'savePath must stay inside the allowed download directory (GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS, ' +
-  'default: the working directory).';
+  'savePath must stay inside the allowed download directory (GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS).';
+
+function realpathOrResolve(target: string): string {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+/**
+ * Parses GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS for attachment downloads. Unlike
+ * downloadFile, which falls back to the working directory, this fails closed:
+ * attachment bytes and names come from the sender, and the hidden-segment
+ * guard only helps when the root is a folder meant for downloads.
+ *
+ * @throws UserError when unset, when an entry is relative, or when an entry
+ *   contains the home directory (which would let a sender write into
+ *   ~/Library/LaunchAgents or ~/Desktop).
+ */
+export function parseAttachmentDownloadRoots(
+  value = process.env.GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS
+): string[] {
+  const entries = (value ?? '')
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (entries.length === 0) {
+    throw new UserError(
+      'Attachment downloads are disabled because GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS is not set. Set ' +
+        'it in the MCP server env to an absolute folder that only holds downloads, delimited by ' +
+        '":" (";" on Windows).'
+    );
+  }
+  const home = realpathOrResolve(os.homedir());
+  return entries.map((entry) => {
+    if (!path.isAbsolute(entry)) {
+      throw new UserError(
+        `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS entries must be absolute paths for attachment downloads, got "${entry}".`
+      );
+    }
+    const root = realpathOrResolve(entry);
+    const relative = path.relative(root, home);
+    const outside =
+      relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+    if (!outside) {
+      throw new UserError(
+        `GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS entry "${entry}" contains the home directory, so a sender ` +
+          'could write anywhere in it. List a folder that only holds downloads.'
+      );
+    }
+    return path.resolve(entry);
+  });
+}
 
 /**
  * Confines a destination: inside a download root, and no unsafe segment below
@@ -149,7 +213,8 @@ function confine(target: string, roots: string[]): string {
   if (unsafe) {
     throw new UserError(
       `savePath may not use "${unsafe.segment}": it ${unsafe.problem}. Hidden files and folders ` +
-        'such as .git or .npmrc are refused because attachments are untrusted.'
+        'such as .git or .npmrc, and desktop.ini or autorun.inf, are refused because attachments ' +
+        'are untrusted.'
     );
   }
   return resolved;
@@ -222,9 +287,15 @@ async function writeAtomically(
       if (!noHardLinks.includes(linkError?.code)) throw linkError;
       const out = await fsp.open(target, exclusive, 0o644);
       try {
-        await out.writeFile(bytes);
-      } finally {
-        await out.close();
+        try {
+          await out.writeFile(bytes);
+        } finally {
+          await out.close();
+        }
+      } catch (fallbackError) {
+        // O_EXCL means this call created the file, so a partial one is ours to remove.
+        await fsp.rm(target, { force: true });
+        throw fallbackError;
       }
       return markAsDownloaded(target);
     }
@@ -281,7 +352,7 @@ const DownloadMessageAttachmentParameters = z
       .describe(
         'Local file path, or an existing directory (or a path ending in "/"), to save to. In a ' +
           "directory the attachment's sanitized file name is used. Must stay inside " +
-          'GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS (default: the working directory). Hidden files and ' +
+          'GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS, which must be set for this tool. Hidden files and ' +
           'folders (any part starting with ".") are refused.'
       ),
     overwrite: z
@@ -300,8 +371,8 @@ export function register(server: FastMCP) {
     description:
       'Downloads one attachment of a Gmail message to a local file. Get messageId and partId ' +
       '(or attachmentId) from getMessage. Returns the saved path, size in bytes, and MIME type. ' +
-      'Will not overwrite an existing file unless overwrite is true. Not available in remote ' +
-      '(httpStream) mode.',
+      'Will not overwrite an existing file unless overwrite is true. Requires ' +
+      'GOOGLE_DOCS_MCP_DOWNLOAD_ROOTS to be set. Not available in remote (httpStream) mode.',
     parameters: DownloadMessageAttachmentParameters,
     execute: async (args, { log }) => {
       if (process.env.MCP_TRANSPORT === 'httpStream') {
@@ -317,7 +388,7 @@ export function register(server: FastMCP) {
 
       // Local checks first: nothing outside the roots is stat'ed, and no API
       // call is made for a destination that would be refused anyway.
-      const roots = parseDownloadRoots();
+      const roots = parseAttachmentDownloadRoots();
       const savePath = confine(args.savePath, roots);
       const intoDirectory = isDirectoryTarget(args.savePath);
       if (!intoDirectory) checkDestination(savePath, args.overwrite);

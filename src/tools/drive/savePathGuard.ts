@@ -92,7 +92,28 @@ export function ensureWithinDownloadRoots(savePath: string, roots: string[]): st
   return resolved;
 }
 
-const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)(\..*)?$/i;
+/** Windows device names, alone or with any extension (`nul.txt` is still NUL). */
+export const WINDOWS_DEVICE =
+  /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)(\..*)?$/i;
+
+/**
+ * Files Windows Explorer reads as folder or drive configuration. `desktop.ini`
+ * can point a folder at a shell extension (CLSID). Refused on every platform,
+ * since a synced folder (Drive, Dropbox) may later be opened on Windows.
+ */
+export const WINDOWS_CONFIG_FILE = /^(desktop\.ini|autorun\.inf)$/i;
+
+/**
+ * Whether a name has the shape of a Windows 8.3 short name (`GIT~1`,
+ * `PROGRA~1`, `REPORT~1.PDF`): a base of at most 8 characters ending in `~N`,
+ * and an extension of at most 3. Windows resolves such a name to the long one
+ * it stands for, so `GIT~1` can reach `.git`. Longer names (`backup~2024.zip`)
+ * can never be short names.
+ */
+export function looksLikeShortName(segment: string): boolean {
+  const match = /^([^.]{1,8})(\.[^.]{1,3})?$/.exec(segment);
+  return match !== null && /~\d+$/.test(match[1]);
+}
 
 /** Why one path segment is unsafe for untrusted content, or null when it is fine. */
 function segmentProblem(segment: string, platform: NodeJS.Platform): string | null {
@@ -100,10 +121,11 @@ function segmentProblem(segment: string, platform: NodeJS.Platform): string | nu
   // "\u200c.git" would land in the real ".git".
   if (/[\p{Cf}\p{Zl}\p{Zp}]/u.test(segment)) return 'contains an invisible character';
   if (segment.startsWith('.')) return 'is hidden (starts with ".")';
+  if (WINDOWS_CONFIG_FILE.test(segment)) return 'is a file Windows Explorer reads as configuration';
   if (platform === 'win32') {
     if (segment.includes(':')) return 'names an alternate data stream';
     if (/[. ]$/.test(segment)) return 'ends in a dot or space, which Windows drops';
-    if (/~\d/.test(segment)) return 'looks like an 8.3 short name';
+    if (looksLikeShortName(segment)) return 'looks like an 8.3 short name';
     if (WINDOWS_DEVICE.test(segment)) return 'is a Windows device name';
   }
   return null;
